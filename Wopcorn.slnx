@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="wopcorn.client/wopcorn.client.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+  <Project Path="Wopcorn.Server/Wopcorn.Server.csproj" />
+  <Project Path="Wopcorn.Server.Tests/Wopcorn.Server.Tests.csproj" />
+</Solution>

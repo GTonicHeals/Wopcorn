@@ -1,0 +1,112 @@
+/*
+ * Wopcorn design tokens (fe-05, task 2).
+ *
+ * The hex values below were contrast-checked; the ratios in the comments are
+ * measured, not estimated. Do not change a colour without re-checking it
+ * against WCAG (NFR-9).
+ *
+ * The accent means exactly one thing: the signed-in user's own state — their
+ * rating, their list membership, the active nav item. Never decorative.
+ */
+
+:root {
+  /* Type */
+  --font-ui: 'Inter var', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+
+  --text-xs: 0.75rem;    /* 12px — meta rows */
+  --text-sm: 0.8125rem;  /* 13px — card titles */
+  --text-base: 0.9375rem;/* 15px — body */
+  --text-lg: 1.125rem;   /* 18px — section headings */
+  --text-xl: 1.5rem;     /* 24px — screen titles */
+  --text-2xl: 2rem;      /* 32px — film detail title (display face) */
+
+  /* Space — 4px base */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-6: 24px; --space-8: 32px; --space-12: 48px;
+
+  /* Radius */
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-full: 999px;
+
+  /* Layout */
+  --nav-height: 56px;
+  --tap-min: 44px;          /* FR-H4 floor. Never smaller. */
+  --content-max: 1100px;
+  --sidebar-width: 240px;
+}
+
+/* Dark is the default. */
+:root, :root[data-theme='dark'] {
+  --bg: #12100E;
+  --surface: #1C1917;
+  --surface-raised: #262220;
+  --border: #35302C;
+  --text: #F5F1EC;          /* 16.88 on bg, 15.55 on surface */
+  --text-muted: #A8A09A;    /*  7.38 on bg,  6.80 on surface */
+  --accent: #E8B33D;        /*  9.90 on bg,  9.12 on surface */
+  --accent-ink: #12100E;    /*  9.90 on accent */
+  --poster-edge: rgba(255, 255, 255, 0.09);
+  --scrim: linear-gradient(to top, rgba(18,16,14,0.95) 0%, rgba(18,16,14,0) 100%);
+}
+
+:root[data-theme='light'] {
+  --bg: #FAF7F2;
+  --surface: #FFFFFF;
+  --surface-raised: #F2ECE3;
+  --border: #E5DED4;
+  --text: #1A1714;          /* 16.70 on bg, 17.85 on surface */
+  --text-muted: #6B625A;    /*  5.58 on bg,  5.97 on surface */
+  --accent: #7E5400;        /*  6.23 on bg,  6.66 on surface */
+  --accent-ink: #FFFFFF;    /*  6.66 on accent */
+  --poster-edge: rgba(0, 0, 0, 0.10);
+  --scrim: linear-gradient(to top, rgba(250,247,242,0.95) 0%, rgba(250,247,242,0) 100%);
+}
+
+/*
+ * The OS preference is the default (FR-H8); a data-theme attribute on <html>
+ * overrides it in BOTH directions, which is why the light rules are written
+ * twice — once keyed on the attribute, once keyed on its absence.
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #FAF7F2;
+    --surface: #FFFFFF;
+    --surface-raised: #F2ECE3;
+    --border: #E5DED4;
+    --text: #1A1714;          /* 16.70 on bg, 17.85 on surface */
+    --text-muted: #6B625A;    /*  5.58 on bg,  5.97 on surface */
+    --accent: #7E5400;        /*  6.23 on bg,  6.66 on surface */
+    --accent-ink: #FFFFFF;    /*  6.66 on accent */
+    --poster-edge: rgba(0, 0, 0, 0.10);
+    --scrim: linear-gradient(to top, rgba(250,247,242,0.95) 0%, rgba(250,247,242,0) 100%);
+  }
+}
+
+/*
+ * Fonts. Inter (UI) and Fraunces (display) are meant to be self-hosted as
+ * variable woff2 in src/assets/fonts/ with font-display: swap. The files are
+ * not in the repository — this deployment has no guaranteed internet access
+ * and a Google Fonts <link> is explicitly not allowed — so the stacks above
+ * currently render through their system fallbacks. Drop
+ * `Inter-Variable.woff2` and `Fraunces-Variable.woff2` into src/assets/fonts/
+ * and uncomment the two @font-face blocks below to switch them on; no other
+ * change is needed.
+ */
+
+/*
+@font-face {
+  font-family: 'Inter var';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/Inter-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/Fraunces-Variable.woff2') format('woff2');
+}
+*/

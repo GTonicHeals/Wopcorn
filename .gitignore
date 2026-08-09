@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+dist/
+
+# Tooling / IDE
+.vs/
+
+# Client dependencies
+node_modules/
+
+# Local SQLite database (wopcorn.db, -wal, -shm)
+wopcorn.db*

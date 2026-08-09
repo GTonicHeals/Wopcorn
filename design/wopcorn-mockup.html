@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wopcorn — Design Direction</title>
+</head>
+<body>
+<style>
+  /* ============ Foundations (fe-05 tokens, verbatim) ============ */
+  :root{
+    --bg:#12100E; --surface:#1C1917; --raised:#262220; --border:#35302C;
+    --text:#F5F1EC; --muted:#A8A09A; --accent:#E8B33D; --accent-ink:#12100E;
+    --poster-edge:rgba(255,255,255,.09);
+    --scrim:linear-gradient(to top, rgba(18,16,14,.95) 0%, rgba(18,16,14,0) 100%);
+    --font-ui:'Inter var',Inter,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --font-display:'Fraunces','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;
+    --r-sm:6px; --r-md:10px; --r-lg:16px;
+  }
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--font-ui);
+    font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  img,svg{display:block}
+  a{color:inherit}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+  /* ============ Presentation chrome (the spec document itself) ============ */
+  .p-wrap{max-width:1180px; margin:0 auto; padding:56px 28px 96px}
+  .p-eyebrow{
+    font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--accent); font-weight:600; margin:0 0 14px;
+  }
+  .p-hero h1{
+    font-family:var(--font-display); font-weight:500; font-size:clamp(38px,6vw,64px);
+    line-height:1.04; margin:0 0 18px; text-wrap:balance; letter-spacing:-.01em;
+  }
+  .p-hero p{max-width:62ch; color:var(--muted); margin:0}
+  .p-hero p strong{color:var(--text); font-weight:600}
+  .p-section{margin-top:84px}
+  .p-section > h2{
+    font-family:var(--font-display); font-weight:500; font-size:26px; margin:0 0 6px;
+  }
+  .p-section > .p-sub{color:var(--muted); font-size:14px; margin:0 0 30px; max-width:70ch}
+  .p-rule{border:0; border-top:1px solid var(--border); margin:0 0 26px}
+  .p-note{
+    font-size:12.5px; color:var(--muted); border-left:2px solid var(--accent);
+    padding:2px 0 2px 14px; max-width:60ch;
+  }
+  .p-caption{font-size:12px; color:var(--muted); margin:14px 2px 0; letter-spacing:.02em}
+  .p-caption b{color:var(--text); font-weight:600}
+
+  /* palette */
+  .p-chips{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px}
+  .p-chip{border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; background:var(--surface)}
+  .p-chip .sw{height:64px; border-bottom:1px solid var(--border)}
+  .p-chip .nm{padding:9px 12px 2px; font-size:12.5px; font-weight:600}
+  .p-chip .hx{padding:0 12px 4px; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .p-chip .cr{padding:0 12px 10px; font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums; letter-spacing:.03em}
+  .p-cols2{display:grid; grid-template-columns:1fr 1fr; gap:40px}
+  @media (max-width:900px){.p-cols2{grid-template-columns:1fr}}
+  .p-h3{font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:0 0 14px}
+
+  /* type specimen */
+  .p-spec{display:grid; gap:22px; border:1px solid var(--border); border-radius:var(--r-lg); padding:30px; background:var(--surface)}
+  .p-spec .row{display:grid; grid-template-columns:200px 1fr; gap:18px; align-items:baseline}
+  @media (max-width:700px){.p-spec .row{grid-template-columns:1fr; gap:4px}}
+  .p-spec .lbl{font-size:11px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; font-variant-numeric:tabular-nums}
+  .p-t-hero{font-family:var(--font-display); font-size:32px; font-weight:500; line-height:1.1}
+  .p-t-screen{font-family:var(--font-display); font-size:24px; font-weight:500}
+  .p-t-body{font-size:15px}
+  .p-t-card{font-size:13px; font-weight:600}
+  .p-t-meta{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .p-t-num{font-family:var(--font-display); font-size:40px; color:var(--accent); font-weight:500; font-variant-numeric:lining-nums}
+
+  /* screens gallery */
+  .p-gallery{display:flex; flex-wrap:wrap; gap:34px; align-items:flex-start}
+  .p-frame{width:min(375px,100%)}
+  .p-phone{
+    border:1px solid var(--border); border-radius:30px; overflow:hidden;
+    background:var(--bg); box-shadow:0 30px 70px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);
+  }
+  .p-desktop{
+    border:1px solid var(--border); border-radius:14px; overflow:hidden; width:100%;
+    box-shadow:0 30px 70px rgba(0,0,0,.5);
+  }
+  .p-desktop-bar{
+    display:flex; gap:6px; padding:10px 14px; background:var(--raised); border-bottom:1px solid var(--border);
+  }
+  .p-desktop-bar i{width:9px; height:9px; border-radius:50%; background:var(--border)}
+
+  /* component gallery */
+  .p-comp{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px}
+  .p-card{border:1px solid var(--border); border-radius:var(--r-lg); background:var(--surface); padding:24px}
+  .p-card h4{margin:0 0 4px; font-size:13.5px; font-weight:600}
+  .p-card .d{font-size:12px; color:var(--muted); margin:0 0 18px}
+
+  /* ============ App mockup styles (the product itself) ============ */
+  .scr{
+    position:relative; height:768px; background:var(--bg); color:var(--text);
+    display:flex; flex-direction:column; overflow:hidden; font-size:15px;
+  }
+  .scr--light{
+    --bg:#FAF7F2; --surface:#FFFFFF; --raised:#F2ECE3; --border:#E5DED4;
+    --text:#1A1714; --muted:#6B625A; --accent:#7E5400; --accent-ink:#FFFFFF;
+    --poster-edge:rgba(0,0,0,.10);
+    --scrim:linear-gradient(to top, rgba(250,247,242,.95) 0%, rgba(250,247,242,0) 100%);
+  }
+  .a-body{flex:1; overflow:hidden; padding:0 16px}
+  .a-head{padding:22px 16px 12px}
+  .a-head .date{font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); margin:0 0 4px; font-weight:600}
+  .a-head h1{font-family:var(--font-display); font-weight:500; font-size:24px; margin:0; display:flex; align-items:baseline; gap:10px}
+  .a-head h1 .ct{font-family:var(--font-ui); font-size:12px; color:var(--muted); font-weight:400}
+
+  /* bottom nav */
+  .a-nav{
+    display:grid; grid-template-columns:repeat(5,1fr); height:56px; flex:none;
+    background:var(--surface); border-top:1px solid var(--border);
+  }
+  .a-nav a{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    text-decoration:none; color:var(--muted); font-size:11px; position:relative;
+  }
+  .a-nav a.on{color:var(--accent)}
+  .a-nav .badge{
+    position:absolute; top:7px; right:calc(50% - 16px); min-width:15px; height:15px; border-radius:999px;
+    background:var(--accent); color:var(--accent-ink); font-size:9.5px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; padding:0 4px;
+  }
+
+  /* icons */
+  .ic{width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}
+  .ic--s{width:16px; height:16px}
+  .ic--fill{fill:currentColor; stroke:none}
+
+  /* posters */
+  .po{
+    border-radius:var(--r-md); border:1px solid var(--poster-edge); position:relative; overflow:hidden;
+    aspect-ratio:2/3; width:100%;
+  }
+  .po::after{
+    content:attr(data-t); position:absolute; left:9px; bottom:7px;
+    font-family:var(--font-display); font-size:11px; letter-spacing:.24em; color:#fff; opacity:.5;
+  }
+  .po--dune{background:linear-gradient(165deg,#D98A3E,#8A4A21 45%,#2B1608)}
+  .po--past{background:linear-gradient(165deg,#8FB4C7,#41617A 55%,#1C2B3A)}
+  .po--itmfl{background:linear-gradient(160deg,#7A1E2B,#4A0F18 60%,#1E060A)}
+  .po--thing{background:linear-gradient(160deg,#4A7DA6,#1E3A55 55%,#0A1522)}
+  .po--spirit{background:linear-gradient(160deg,#C24E56,#7A2430 55%,#2A0C12)}
+  .po--aliens{background:linear-gradient(160deg,#3E5C52,#1B2E28 60%,#0A1210)}
+  .po--stalker{background:linear-gradient(160deg,#8A8560,#4A472F 60%,#1C1B10)}
+  .po--heat{background:linear-gradient(165deg,#16273F,#0E1B2E 55%,#080D16)}
+  .po--chung{background:linear-gradient(160deg,#3FA08A,#1E5C4C 55%,#0A241C)}
+
+  /* stars */
+  .st{--n:0; position:relative; display:inline-block; font-size:13px; letter-spacing:1.5px; line-height:1; color:var(--border); font-style:normal}
+  .st::before{content:"★★★★★"}
+  .st i{position:absolute; inset:0; width:calc(var(--n)/5*100%); overflow:hidden; color:var(--accent); font-style:normal; white-space:nowrap}
+  .st i::before{content:"★★★★★"}
+  .st--lg{font-size:27px; letter-spacing:6px}
+
+  /* film card (grid unit) */
+  .fc{width:158px; flex:none}
+  .fc .t{font-size:13px; font-weight:600; margin:8px 0 1px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical}
+  .fc .m{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin:0 0 3px}
+  .fc .r{margin:0 0 8px; height:14px}
+  .fc .acts{display:flex; gap:4px}
+  .tgl{
+    flex:1; height:40px; border-radius:var(--r-sm); border:1px solid var(--border);
+    background:transparent; color:var(--muted); display:flex; align-items:center; justify-content:center;
+    padding:0; cursor:pointer; font:inherit;
+  }
+  .tgl.on{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+
+  /* feed */
+  .fi{margin:0 0 20px}
+  .fi .line{display:flex; align-items:center; gap:8px; font-size:13.5px; margin:0 0 10px; color:var(--text)}
+  .fi .line .who{font-weight:600}
+  .fi .line time{color:var(--muted); font-size:12px; margin-left:auto; font-variant-numeric:tabular-nums}
+  .av{width:26px; height:26px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+      font-size:11px; font-weight:700; color:var(--accent-ink)}
+  .av--a{background:#B86A4E}
+  .av--m{background:#5E7C66}
+  .browse-h{font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:26px 0 12px}
+  .browse{display:flex; gap:10px; overflow:hidden}
+  .browse .po{width:96px; flex:none}
+
+  /* film detail */
+  .bd{position:relative; aspect-ratio:16/9; flex:none}
+  .bd--dune{background:
+    radial-gradient(120% 90% at 75% 0%, #F0BE7A 0%, transparent 55%),
+    linear-gradient(180deg,#D0904A 0%,#A05E24 45%,#3A1E0C 100%)}
+  .bd .sc{position:absolute; inset:0; background:var(--scrim)}
+  .bd .back{position:absolute; top:14px; left:14px; width:34px; height:34px; border-radius:50%;
+    background:rgba(18,16,14,.55); display:flex; align-items:center; justify-content:center; color:#F5F1EC}
+  .bd h2{position:absolute; left:16px; right:16px; bottom:10px; margin:0;
+    font-family:var(--font-display); font-weight:500; font-size:32px; line-height:1.05; color:#F5F1EC}
+  .fd{padding:12px 16px 0; flex:1; overflow:hidden}
+  .fd .meta{display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .chip{border:1px solid var(--border); border-radius:999px; padding:2px 10px; font-size:11.5px; color:var(--muted)}
+  .score{display:flex; align-items:center; gap:6px; margin:14px 0 2px; font-size:13px}
+  .score b{font-variant-numeric:tabular-nums}
+  .score .src{color:var(--muted); font-size:11.5px; letter-spacing:.08em}
+  .rate{display:flex; align-items:center; gap:12px; height:56px}
+  .rate .clr{color:var(--muted); background:none; border:0; font-size:12px; cursor:pointer; padding:8px}
+  .fd .acts{display:flex; gap:6px; margin:2px 0 16px}
+  .fd .acts .tgl{height:44px; gap:7px; font-size:12.5px; font-weight:600}
+  .fw{border-top:1px solid var(--border); padding:14px 0 2px}
+  .fw h3, .syn h3{font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:0 0 10px}
+  .fw .row{display:flex; align-items:center; gap:10px; padding:5px 0; font-size:13.5px}
+  .fw .row .st{margin-left:auto}
+  .syn{padding:16px 0 0}
+  .syn p{margin:0; font-size:13.5px; color:var(--muted); line-height:1.6}
+
+  /* queue */
+  .q-hero{position:relative; border-radius:var(--r-lg); overflow:hidden; border:1px solid var(--poster-edge); aspect-ratio:16/10; margin:4px 0 6px}
+  .q-hero .art{position:absolute; inset:0; background:
+    radial-gradient(2px 2px at 18% 68%, rgba(232,179,61,.95), transparent 60%),
+    radial-gradient(1.5px 1.5px at 30% 74%, rgba(140,190,255,.9), transparent 60%),
+    radial-gradient(2px 2px at 46% 70%, rgba(232,179,61,.75), transparent 60%),
+    radial-gradient(1.5px 1.5px at 60% 76%, rgba(255,255,255,.7), transparent 60%),
+    radial-gradient(2px 2px at 74% 69%, rgba(140,190,255,.85), transparent 60%),
+    radial-gradient(1.5px 1.5px at 86% 73%, rgba(232,179,61,.8), transparent 60%),
+    linear-gradient(180deg,#101E33 0%,#0C1626 55%,#070C15 100%)}
+  .q-hero .sc{position:absolute; inset:0; background:linear-gradient(to top, rgba(18,16,14,.92) 0%, rgba(18,16,14,0) 65%)}
+  .q-hero .tx{position:absolute; left:16px; right:16px; bottom:12px}
+  .q-hero .up{font-size:10.5px; letter-spacing:.26em; text-transform:uppercase; color:var(--accent); font-weight:700; margin:0 0 3px}
+  .q-hero h2{margin:0; font-family:var(--font-display); font-weight:500; font-size:28px; color:#F5F1EC; line-height:1.05}
+  .q-hero .m{font-size:12px; color:#A8A09A; margin:3px 0 0; font-variant-numeric:tabular-nums}
+  .q-row{display:flex; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid var(--border)}
+  .q-row .n{font-family:var(--font-display); font-size:24px; color:var(--muted); width:26px; text-align:center; flex:none; font-variant-numeric:lining-nums}
+  .q-row .po{width:44px; flex:none}
+  .q-row .t{flex:1; min-width:0}
+  .q-row .t b{display:block; font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .q-row .t span{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .q-row .mv{display:flex; flex-direction:column; gap:2px; color:var(--muted)}
+  .q-row .mv button{background:none; border:0; color:inherit; padding:2px; cursor:pointer; line-height:0}
+  .q-row .grip{color:var(--muted); padding:12px 2px 12px 8px}
+  .q-sort{margin-left:auto; border:1px solid var(--border); background:none; color:var(--muted);
+    border-radius:999px; font:inherit; font-size:12px; padding:6px 13px; cursor:pointer; display:flex; gap:6px; align-items:center}
+
+  /* lists view */
+  .seg{display:grid; grid-template-columns:repeat(3,1fr); background:var(--raised); border-radius:999px; padding:3px; margin:2px 0 14px}
+  .seg button{border:0; background:none; color:var(--muted); font:inherit; font-size:12.5px; font-weight:600; padding:8px 0; border-radius:999px; cursor:pointer}
+  .seg .on{background:var(--accent); color:var(--accent-ink)}
+  .flt{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 6px}
+  .flt .chip--on{border-color:var(--accent); color:var(--text)}
+  .flt .chip--on b{color:var(--accent); font-weight:700; margin-left:4px}
+  .flt .showing{font-size:12px; color:var(--muted); margin-left:auto; font-variant-numeric:tabular-nums}
+  .sort-row{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); margin:0 0 14px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .grid2 .fc{width:auto}
+
+  /* desktop frame */
+  .dk{display:grid; grid-template-columns:224px 1fr; background:var(--bg); color:var(--text); min-height:560px}
+  .dk-side{border-right:1px solid var(--border); padding:22px 14px; display:flex; flex-direction:column; gap:2px}
+  .dk-side .wm{font-family:var(--font-display); font-weight:500; font-size:20px; letter-spacing:.02em; padding:0 12px 18px}
+  .dk-side a{display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:var(--r-md);
+    text-decoration:none; color:var(--muted); font-size:13.5px; position:relative}
+  .dk-side a.on{color:var(--accent); background:var(--surface)}
+  .dk-side .bdg{margin-left:auto; min-width:17px; height:17px; border-radius:999px; background:var(--accent); color:var(--accent-ink);
+    font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; padding:0 5px}
+  .dk-side .me{margin-top:auto; display:flex; align-items:center; gap:10px; padding:10px 12px; color:var(--text); font-size:13px}
+  .dk-main{padding:26px 30px 30px; overflow:hidden}
+  .dk-main .hd{display:flex; align-items:baseline; gap:12px; margin:0 0 16px}
+  .dk-main h2{font-family:var(--font-display); font-weight:500; font-size:26px; margin:0}
+  .dk-main .hd .ct{font-size:12.5px; color:var(--muted)}
+  .dk-main .tools{display:flex; gap:8px; margin:0 0 18px; align-items:center}
+  .dk-grid{display:grid; grid-template-columns:repeat(5,1fr); gap:16px}
+  .dk-grid .fc{width:auto}
+  @media (max-width:860px){.dk{grid-template-columns:1fr}.dk-side{display:none}.dk-grid{grid-template-columns:repeat(3,1fr)}}
+
+  /* components */
+  .c-star-demo{position:relative; border:1px dashed var(--accent); border-radius:var(--r-sm); height:56px; display:flex; align-items:center; justify-content:center}
+  .c-star-demo .tag{position:absolute; right:8px; top:-9px; background:var(--surface); color:var(--accent); font-size:10px; letter-spacing:.1em; padding:0 6px}
+  .tm{border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; margin:0 0 10px; background:var(--raised)}
+  .tm .pc{font-size:22px; font-weight:700; font-variant-numeric:tabular-nums}
+  .tm .pc small{font-size:12px; color:var(--muted); font-weight:400; margin-left:6px}
+  .tm .qual{font-size:12px; color:var(--muted); margin-top:1px}
+  .btn{height:44px; border-radius:var(--r-md); font:inherit; font-size:13.5px; font-weight:600; padding:0 20px; cursor:pointer}
+  .btn--pri{background:var(--accent); color:var(--accent-ink); border:1px solid var(--accent)}
+  .btn--sec{background:none; color:var(--text); border:1px solid var(--border)}
+  .btn--gho{background:none; color:var(--muted); border:1px solid transparent}
+  .err{border:1px solid var(--border); border-radius:var(--r-md); padding:18px; text-align:center}
+  .err h5{margin:6px 0 4px; font-size:14px}
+  .err p{margin:0 0 14px; font-size:12.5px; color:var(--muted)}
+  .toast{background:var(--raised); border:1px solid var(--border); border-radius:var(--r-md); padding:12px 16px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,.4)}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3.1"/></symbol>
+  <symbol id="i-bkm" viewBox="0 0 24 24"><path d="M6.5 3.5h11V21l-5.5-3.8L6.5 21Z"/></symbol>
+  <symbol id="i-lay" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3.6 13.5 8.4 4.7 8.4-4.7"/></symbol>
+  <symbol id="i-hom" viewBox="0 0 24 24"><path d="M3.5 10.8 12 4l8.5 6.8V20a.8.8 0 0 1-.8.8h-4.9v-5.6H9.2v5.6H4.3a.8.8 0 0 1-.8-.8Z"/></symbol>
+  <symbol id="i-sea" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20.5 20.5-4.8-4.8"/></symbol>
+  <symbol id="i-ppl" viewBox="0 0 24 24"><circle cx="9" cy="8.2" r="3.4"/><path d="M2.8 19.5c0-3.3 2.9-5.2 6.2-5.2s6.2 1.9 6.2 5.2"/><circle cx="17.2" cy="9.2" r="2.5"/><path d="M16.4 14.5c2.6.4 4.8 2 4.8 4.7"/></symbol>
+  <symbol id="i-you" viewBox="0 0 24 24"><circle cx="12" cy="8.6" r="3.6"/><path d="M4.8 20c.8-3.4 3.8-5 7.2-5s6.4 1.6 7.2 5"/></symbol>
+  <symbol id="i-grp" viewBox="0 0 24 24"><path d="M5 8h14M5 12h14M5 16h14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></symbol>
+  <symbol id="i-dn" viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></symbol>
+  <symbol id="i-bk" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></symbol>
+  <symbol id="i-swp" viewBox="0 0 24 24"><path d="M7 4v13M7 17l-3-3M7 17l3-3M17 20V7M17 7l-3 3M17 7l3 3"/></symbol>
+</defs></svg>
+
+<div class="p-wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="p-hero">
+    <p class="p-eyebrow">Wopcorn · Design direction · v1</p>
+    <h1>House lights down.<br>The posters do the talking.</h1>
+    <p>
+      Wopcorn is a private movie tracker for a circle of friends — used at night, on a phone,
+      deciding what to watch. The interface is a dark, warm room: <strong>near-chromeless surfaces
+      in roasted browns</strong>, so poster art supplies all the color. One gold runs through it,
+      and it means exactly one thing: <strong>you</strong> — your rating, your lists, your place in
+      the app. Fraunces speaks only when a film is named or a screen begins; Inter does the quiet work.
+      The signature is the <strong>queue</strong>: the only ordered list in the app, so the only place
+      numerals appear — and position № 1 becomes tonight's answer.
+    </p>
+  </header>
+
+  <!-- ================= FOUNDATIONS ================= -->
+  <section class="p-section">
+    <h2>Foundations</h2>
+    <p class="p-sub">Tokens are lifted verbatim from the fe-05 contract — every ratio below is measured
+      against WCAG, not estimated. Changing any hex requires re-checking (NFR-9).</p>
+    <hr class="p-rule">
+
+    <div class="p-cols2">
+      <div>
+        <h3 class="p-h3">Dark — the default</h3>
+        <div class="p-chips">
+          <div class="p-chip"><div class="sw" style="background:#12100E"></div><div class="nm">Dark Roast</div><div class="hx">#12100E · bg</div><div class="cr">&nbsp;</div></div>
+          <div class="p-chip"><div class="sw" style="background:#1C1917"></div><div class="nm">Walnut</div><div class="hx">#1C1917 · surface</div><div class="cr">&nbsp;</div></div>
+          <div class="p-chip"><div class="sw" style="background:#F5F1EC"></div><div class="nm">Cream</div><div class="hx">#F5F1EC · text</div><div class="cr">16.88 : 1 on bg</div></div>
+          <div class="p-chip"><div class="sw" style="background:#A8A09A"></div><div class="nm">Ash</div><div class="hx">#A8A09A · muted</div><div class="cr">7.38 : 1 on bg</div></div>
+          <div class="p-chip"><div class="sw" style="background:#E8B33D"></div><div class="nm">Marquee Gold</div><div class="hx">#E8B33D · accent</div><div class="cr">9.90 : 1 on bg</div></div>
+          <div class="p-chip"><div class="sw" style="background:#35302C"></div><div class="nm">Grain</div><div class="hx">#35302C · border</div><div class="cr">&nbsp;</div></div>
+        </div>
+      </div>
+      <div>
+        <h3 class="p-h3">Light — follows the OS</h3>
+        <div class="p-chips">
+          <div class="p-chip"><div class="sw" style="background:#FAF7F2"></div><div class="nm">Parchment</div><div class="hx">#FAF7F2 · bg</div><div class="cr">&nbsp;</div></div>
+          <div class="p-chip"><div class="sw" style="background:#FFFFFF"></div><div class="nm">Screen</div><div class="hx">#FFFFFF · surface</div><div class="cr">&nbsp;</div></div>
+          <div class="p-chip"><div class="sw" style="background:#1A1714"></div><div class="nm">Ink</div><div class="hx">#1A1714 · text</div><div class="cr">16.70 : 1 on bg</div></div>
+          <div class="p-chip"><div class="sw" style="background:#6B625A"></div><div class="nm">Umber</div><div class="hx">#6B625A · muted</div><div class="cr">5.58 : 1 on bg</div></div>
+          <div class="p-chip"><div class="sw" style="background:#7E5400"></div><div class="nm">Deep Gold</div><div class="hx">#7E5400 · accent</div><div class="cr">6.23 : 1 on bg</div></div>
+          <div class="p-chip"><div class="sw" style="background:#E5DED4"></div><div class="nm">Linen</div><div class="hx">#E5DED4 · border</div><div class="cr">&nbsp;</div></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="p-note" style="margin-top:26px">
+      <b>The gold rule.</b> The accent marks the signed-in user's own state and nothing else — their rating,
+      their list membership, their active tab. It is never decorative. Everything else on screen earns its
+      color from poster art.
+    </p>
+
+    <h3 class="p-h3" style="margin-top:40px">Type</h3>
+    <div class="p-spec">
+      <div class="row"><span class="lbl">Display · Fraunces · 32</span><span class="p-t-hero">Dune: Part Two</span></div>
+      <div class="row"><span class="lbl">Screen title · Fraunces · 24</span><span class="p-t-screen">Queue</span></div>
+      <div class="row"><span class="lbl">Queue numeral · Fraunces</span><span class="p-t-num">№ 1</span></div>
+      <div class="row"><span class="lbl">Body · Inter · 15</span><span class="p-t-body">Ada rated Dune: Part Two four and a half stars.</span></div>
+      <div class="row"><span class="lbl">Card title · Inter · 13/600</span><span class="p-t-card">In the Mood for Love</span></div>
+      <div class="row"><span class="lbl">Meta · Inter · 12 · tabular</span><span class="p-t-meta">2000 · 1h 38m · ★ 8.1</span></div>
+    </div>
+    <p class="p-caption">Fraunces appears only where a film is named large or a screen begins — never in cards,
+      buttons, or body copy. In this mockup it renders through its fallback stack (Palatino/Georgia); the real
+      build self-hosts Fraunces and Inter as variable woff2 (fe-05, task 2).</p>
+  </section>
+
+  <!-- ================= SCREENS ================= -->
+  <section class="p-section">
+    <h2>Screens</h2>
+    <p class="p-sub">Four moments that define the app, at true mobile scale (375px). All tap targets hold the
+      44px floor. The fourth frame runs the light theme to prove the palette both ways.</p>
+    <hr class="p-rule">
+
+    <div class="p-gallery">
+
+      <!-- ============ FEED ============ -->
+      <div class="p-frame">
+        <div class="p-phone"><div class="scr">
+          <header class="a-head">
+            <p class="date">Friday · 6 Feb</p>
+            <h1>Feed</h1>
+          </header>
+          <div class="a-body">
+            <article class="fi">
+              <p class="line"><span class="av av--a">A</span><span><span class="who">Ada</span> rated</span>
+                <span class="st" style="--n:4.5"><i></i></span><time>2h</time></p>
+              <div class="fc">
+                <div class="po po--dune" data-t="DUNE"></div>
+                <p class="t">Dune: Part Two</p>
+                <p class="m">2024 · ★ 8.3</p>
+                <p class="r"></p>
+                <div class="acts">
+                  <button class="tgl" aria-label="Watched — Dune: Part Two"><svg class="ic ic--s"><use href="#i-eye"/></svg></button>
+                  <button class="tgl on" aria-pressed="true" aria-label="On your watchlist — Dune: Part Two"><svg class="ic ic--s"><use href="#i-bkm"/></svg></button>
+                  <button class="tgl" aria-label="Queue — Dune: Part Two"><svg class="ic ic--s"><use href="#i-lay"/></svg></button>
+                </div>
+              </div>
+            </article>
+            <article class="fi">
+              <p class="line"><span class="av av--m">M</span><span><span class="who">Marco</span> added to their watchlist</span><time>1d</time></p>
+              <div class="fc">
+                <div class="po po--past" data-t="PAST LIVES"></div>
+                <p class="t">Past Lives</p>
+                <p class="m">2023 · ★ 7.9</p>
+                <p class="r"></p>
+                <div class="acts">
+                  <button class="tgl" aria-label="Watched — Past Lives"><svg class="ic ic--s"><use href="#i-eye"/></svg></button>
+                  <button class="tgl" aria-label="Watchlist — Past Lives"><svg class="ic ic--s"><use href="#i-bkm"/></svg></button>
+                  <button class="tgl" aria-label="Queue — Past Lives"><svg class="ic ic--s"><use href="#i-lay"/></svg></button>
+                </div>
+              </div>
+            </article>
+            <h3 class="browse-h">Browse · Popular</h3>
+            <div class="browse">
+              <div class="po po--chung" data-t="CHUNGKING"></div>
+              <div class="po po--spirit" data-t="SPIRITED"></div>
+              <div class="po po--thing" data-t="THE THING"></div>
+              <div class="po po--aliens" data-t="ALIENS"></div>
+            </div>
+          </div>
+          <nav class="a-nav">
+            <a class="on" href="#"><svg class="ic"><use href="#i-hom"/></svg>Feed</a>
+            <a href="#"><svg class="ic"><use href="#i-sea"/></svg>Search</a>
+            <a href="#"><svg class="ic"><use href="#i-lay"/></svg>Lists</a>
+            <a href="#"><svg class="ic"><use href="#i-ppl"/></svg>Friends<span class="badge">2</span></a>
+            <a href="#"><svg class="ic"><use href="#i-you"/></svg>You</a>
+          </nav>
+        </div></div>
+        <p class="p-caption"><b>Feed.</b> A friend's action is one plain sentence; the card beneath carries
+          <i>your</i> state — Dune is already on your watchlist, so that toggle is gold. Two pending friend
+          requests light the nav badge.</p>
+      </div>
+
+      <!-- ============ FILM DETAIL ============ -->
+      <div class="p-frame">
+        <div class="p-phone"><div class="scr">
+          <div class="bd bd--dune">
+            <div class="sc"></div>
+            <span class="back"><svg class="ic"><use href="#i-bk"/></svg></span>
+            <h2>Dune: Part Two</h2>
+          </div>
+          <div class="fd">
+            <p class="meta">2024 · 2h 46m
+              <span class="chip">Science Fiction</span><span class="chip">Adventure</span>
+            </p>
+            <p class="score"><b>★ 8.3</b><span class="src">TMDB</span></p>
+            <div class="rate">
+              <span class="st st--lg" style="--n:4.5"><i></i></span>
+              <button class="clr">Clear</button>
+            </div>
+            <div class="acts">
+              <button class="tgl on" aria-pressed="true"><svg class="ic ic--s"><use href="#i-eye"/></svg>Watched</button>
+              <button class="tgl"><svg class="ic ic--s"><use href="#i-bkm"/></svg>Watchlist</button>
+              <button class="tgl"><svg class="ic ic--s"><use href="#i-lay"/></svg>Queue</button>
+            </div>
+            <div class="fw">
+              <h3>Friends watched</h3>
+              <div class="row"><span class="av av--a">A</span>Ada<span class="st" style="--n:4.5"><i></i></span></div>
+              <div class="row"><span class="av av--m">M</span>Marco<span class="st" style="--n:4"><i></i></span></div>
+            </div>
+            <div class="syn">
+              <h3>Synopsis</h3>
+              <p>Paul Atreides unites with Chani and the Fremen while seeking revenge against the
+                conspirators who destroyed his family…</p>
+            </div>
+          </div>
+        </div></div>
+        <p class="p-caption"><b>Film.</b> Backdrop, scrim, Fraunces title. Your half-star rating sits in a
+          56px drag row — the hit area is the whole row, not the glyphs. Rating and list toggles are reachable
+          without scrolling on a 320×568 screen.</p>
+      </div>
+
+      <!-- ============ QUEUE (signature) ============ -->
+      <div class="p-frame">
+        <div class="p-phone"><div class="scr">
+          <header class="a-head">
+            <h1 style="display:flex; align-items:center">Queue <span class="ct">7 films · 14h 51m</span>
+              <button class="q-sort"><svg class="ic ic--s"><use href="#i-swp"/></svg>Sort</button>
+            </h1>
+          </header>
+          <div class="a-body">
+            <div class="q-hero">
+              <div class="art"></div><div class="sc"></div>
+              <div class="tx">
+                <p class="up">Up next</p>
+                <h2>Heat</h2>
+                <p class="m">1995 · 2h 50m · added 12 Jan</p>
+              </div>
+            </div>
+            <div class="q-row">
+              <span class="n">2</span>
+              <div class="po po--itmfl" data-t=""></div>
+              <div class="t"><b>In the Mood for Love</b><span>2000 · 1h 38m</span></div>
+              <div class="mv">
+                <button aria-label="Move up"><svg class="ic ic--s"><use href="#i-up"/></svg></button>
+                <button aria-label="Move down"><svg class="ic ic--s"><use href="#i-dn"/></svg></button>
+              </div>
+              <span class="grip"><svg class="ic"><use href="#i-grp"/></svg></span>
+            </div>
+            <div class="q-row">
+              <span class="n">3</span>
+              <div class="po po--thing" data-t=""></div>
+              <div class="t"><b>The Thing</b><span>1982 · 1h 49m</span></div>
+              <div class="mv">
+                <button aria-label="Move up"><svg class="ic ic--s"><use href="#i-up"/></svg></button>
+                <button aria-label="Move down"><svg class="ic ic--s"><use href="#i-dn"/></svg></button>
+              </div>
+              <span class="grip"><svg class="ic"><use href="#i-grp"/></svg></span>
+            </div>
+            <div class="q-row">
+              <span class="n">4</span>
+              <div class="po po--spirit" data-t=""></div>
+              <div class="t"><b>Spirited Away</b><span>2001 · 2h 5m</span></div>
+              <div class="mv">
+                <button aria-label="Move up"><svg class="ic ic--s"><use href="#i-up"/></svg></button>
+                <button aria-label="Move down"><svg class="ic ic--s"><use href="#i-dn"/></svg></button>
+              </div>
+              <span class="grip"><svg class="ic"><use href="#i-grp"/></svg></span>
+            </div>
+            <div class="q-row" style="border-bottom:0">
+              <span class="n">5</span>
+              <div class="po po--stalker" data-t=""></div>
+              <div class="t"><b>Stalker</b><span>1979 · 2h 42m</span></div>
+              <div class="mv">
+                <button aria-label="Move up"><svg class="ic ic--s"><use href="#i-up"/></svg></button>
+                <button aria-label="Move down"><svg class="ic ic--s"><use href="#i-dn"/></svg></button>
+              </div>
+              <span class="grip"><svg class="ic"><use href="#i-grp"/></svg></span>
+            </div>
+          </div>
+          <nav class="a-nav">
+            <a href="#"><svg class="ic"><use href="#i-hom"/></svg>Feed</a>
+            <a href="#"><svg class="ic"><use href="#i-sea"/></svg>Search</a>
+            <a class="on" href="#"><svg class="ic"><use href="#i-lay"/></svg>Lists</a>
+            <a href="#"><svg class="ic"><use href="#i-ppl"/></svg>Friends<span class="badge">2</span></a>
+            <a href="#"><svg class="ic"><use href="#i-you"/></svg>You</a>
+          </nav>
+        </div></div>
+        <p class="p-caption"><b>Queue — the signature.</b> The only ordered list in the app, so the only
+          numerals in the app: Fraunces figures, and № 1 expands into tonight's answer. Rows drag by the grip
+          <i>and</i> move by button — the keyboard path is not optional.</p>
+      </div>
+
+      <!-- ============ LISTS (light theme) ============ -->
+      <div class="p-frame">
+        <div class="p-phone"><div class="scr scr--light">
+          <header class="a-head">
+            <h1>Your lists</h1>
+          </header>
+          <div class="a-body">
+            <div class="seg">
+              <button class="on">Watched</button><button>Watchlist</button><button>Queue</button>
+            </div>
+            <div class="flt">
+              <span class="chip chip--on">Sci-Fi <b>✕</b></span>
+              <span class="chip chip--on">1980s <b>✕</b></span>
+              <span class="showing">12 of 84</span>
+            </div>
+            <p class="sort-row">Sorted by your rating ↓</p>
+            <div class="grid2">
+              <div class="fc">
+                <div class="po po--aliens" data-t="ALIENS"></div>
+                <p class="t">Aliens</p>
+                <p class="m">1986 · ★ 7.9</p>
+                <p class="r"><span class="st" style="--n:5"><i></i></span></p>
+                <div class="acts">
+                  <button class="tgl on" aria-pressed="true"><svg class="ic ic--s"><use href="#i-eye"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-bkm"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-lay"/></svg></button>
+                </div>
+              </div>
+              <div class="fc">
+                <div class="po po--thing" data-t="THE THING"></div>
+                <p class="t">The Thing</p>
+                <p class="m">1982 · ★ 8.2</p>
+                <p class="r"><span class="st" style="--n:4.5"><i></i></span></p>
+                <div class="acts">
+                  <button class="tgl on" aria-pressed="true"><svg class="ic ic--s"><use href="#i-eye"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-bkm"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-lay"/></svg></button>
+                </div>
+              </div>
+              <div class="fc">
+                <div class="po po--stalker" data-t="STALKER"></div>
+                <p class="t">Stalker</p>
+                <p class="m">1979 · ★ 8.0</p>
+                <p class="r"><span class="st" style="--n:4"><i></i></span></p>
+                <div class="acts">
+                  <button class="tgl on" aria-pressed="true"><svg class="ic ic--s"><use href="#i-eye"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-bkm"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-lay"/></svg></button>
+                </div>
+              </div>
+              <div class="fc">
+                <div class="po po--dune" data-t="DUNE"></div>
+                <p class="t">Dune: Part Two</p>
+                <p class="m">2024 · ★ 8.3</p>
+                <p class="r"><span class="st" style="--n:4"><i></i></span></p>
+                <div class="acts">
+                  <button class="tgl on" aria-pressed="true"><svg class="ic ic--s"><use href="#i-eye"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-bkm"/></svg></button>
+                  <button class="tgl"><svg class="ic ic--s"><use href="#i-lay"/></svg></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <nav class="a-nav">
+            <a href="#"><svg class="ic"><use href="#i-hom"/></svg>Feed</a>
+            <a href="#"><svg class="ic"><use href="#i-sea"/></svg>Search</a>
+            <a class="on" href="#"><svg class="ic"><use href="#i-lay"/></svg>Lists</a>
+            <a href="#"><svg class="ic"><use href="#i-ppl"/></svg>Friends<span class="badge">2</span></a>
+            <a href="#"><svg class="ic"><use href="#i-you"/></svg>You</a>
+          </nav>
+        </div></div>
+        <p class="p-caption"><b>Lists, in light.</b> Same tokens, re-measured for parchment: the accent deepens
+          to <b>#7E5400</b> so gold stays legible on white. Active filters are removable chips; the header
+          answers "how many am I seeing, of how many?"</p>
+      </div>
+    </div>
+
+    <!-- ============ DESKTOP ============ -->
+    <div style="margin-top:56px">
+      <div class="p-desktop">
+        <div class="p-desktop-bar"><i></i><i></i><i></i></div>
+        <div class="dk">
+          <aside class="dk-side">
+            <p class="wm">Wopcorn</p>
+            <a href="#"><svg class="ic"><use href="#i-hom"/></svg>Feed</a>
+            <a href="#"><svg class="ic"><use href="#i-sea"/></svg>Search</a>
+            <a class="on" href="#"><svg class="ic"><use href="#i-lay"/></svg>Lists</a>
+            <a href="#"><svg class="ic"><use href="#i-ppl"/></svg>Friends<span class="bdg">2</span></a>
+            <a class="me" href="#"><span class="av av--a" style="background:#8A6BA8">N</span>Nico</a>
+          </aside>
+          <main class="dk-main">
+            <div class="hd"><h2>Watched</h2><span class="ct">84 films</span></div>
+            <div class="tools">
+              <span class="chip chip--on" style="border-color:var(--accent); color:var(--text)">Sci-Fi <b style="color:var(--accent)">✕</b></span>
+              <span class="chip">Decade</span>
+              <span class="chip">Rating ↓</span>
+            </div>
+            <div class="dk-grid">
+              <div class="fc"><div class="po po--aliens" data-t="ALIENS"></div><p class="t">Aliens</p><p class="m">1986 · ★ 7.9</p><p class="r"><span class="st" style="--n:5"><i></i></span></p></div>
+              <div class="fc"><div class="po po--thing" data-t="THE THING"></div><p class="t">The Thing</p><p class="m">1982 · ★ 8.2</p><p class="r"><span class="st" style="--n:4.5"><i></i></span></p></div>
+              <div class="fc"><div class="po po--stalker" data-t="STALKER"></div><p class="t">Stalker</p><p class="m">1979 · ★ 8.0</p><p class="r"><span class="st" style="--n:4"><i></i></span></p></div>
+              <div class="fc"><div class="po po--dune" data-t="DUNE"></div><p class="t">Dune: Part Two</p><p class="m">2024 · ★ 8.3</p><p class="r"><span class="st" style="--n:4"><i></i></span></p></div>
+              <div class="fc"><div class="po po--itmfl" data-t="ITMFL"></div><p class="t">In the Mood for Love</p><p class="m">2000 · ★ 8.1</p><p class="r"><span class="st" style="--n:4.5"><i></i></span></p></div>
+            </div>
+          </main>
+        </div>
+      </div>
+      <p class="p-caption"><b>Desktop ≥ 900px.</b> The same five destinations become a sidebar; content centers
+        at 1100px max. Nothing is redesigned — it is the mobile app given room.</p>
+    </div>
+  </section>
+
+  <!-- ================= COMPONENTS ================= -->
+  <section class="p-section">
+    <h2>Component decisions</h2>
+    <p class="p-sub">The states most likely to be built wrong, decided here.</p>
+    <hr class="p-rule">
+    <div class="p-comp">
+
+      <div class="p-card">
+        <h4>Star input</h4>
+        <p class="d">The hit area is a 56px full-width row — drag anywhere along it; glyphs are 32px and only
+          display the value. Slider semantics: arrows step ½ star, Home/End jump. Clearing is its own button,
+          never "tap the same value again."</p>
+        <div class="c-star-demo">
+          <span class="tag">56px hit area</span>
+          <span class="st st--lg" style="--n:3.5"><i></i></span>
+        </div>
+      </div>
+
+      <div class="p-card">
+        <h4>Taste match — honest by construction</h4>
+        <p class="d">A percentage never appears without its sample size, and never appears at all below
+          5 shared films.</p>
+        <div class="tm">
+          <div class="pc">78% match<small>based on 24 films</small></div>
+        </div>
+        <div class="tm">
+          <div class="qual">Not enough overlap yet — <b>3 films in common</b></div>
+        </div>
+      </div>
+
+      <div class="p-card">
+        <h4>Buttons</h4>
+        <p class="d">Primary is the only filled element besides active toggles — gold stays scarce.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap">
+          <button class="btn btn--pri">Save changes</button>
+          <button class="btn btn--sec">Cancel</button>
+          <button class="btn btn--gho">Clear filters</button>
+        </div>
+      </div>
+
+      <div class="p-card">
+        <h4>TMDB failure — never a blank region</h4>
+        <p class="d">Upstream trouble names what still works.</p>
+        <div class="err">
+          <h5>Film search is unavailable</h5>
+          <p>TMDB isn't responding right now. Your lists, ratings, and friends are unaffected.</p>
+          <button class="btn btn--sec" style="height:38px">Retry</button>
+        </div>
+      </div>
+
+      <div class="p-card">
+        <h4>Queue conflict toast</h4>
+        <p class="d">A rejected reorder reconciles to the server's order and says so — it never silently
+          discards.</p>
+        <div class="toast">Your queue changed elsewhere — showing the latest order.</div>
+      </div>
+
+      <div class="p-card">
+        <h4>Poster placeholders</h4>
+        <p class="d">Films without artwork get a duotone drawn from the era of the film, with the title set
+          small in the display face — a missing poster still looks intentional.</p>
+        <div style="display:flex; gap:10px">
+          <div class="po po--chung" style="width:76px" data-t="NO ART"></div>
+          <div class="po po--itmfl" style="width:76px" data-t="NO ART"></div>
+          <div class="po po--stalker" style="width:76px" data-t="NO ART"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="p-caption" style="margin-top:34px">
+      This page commits to the app's dark room deliberately — the light theme is specified above and proven in
+      frame four. Real poster art replaces the duotones in the build; TMDB attribution renders on the film view
+      and profile per FR-B9.
+    </p>
+  </section>
+</div>
+</body>
+</html>

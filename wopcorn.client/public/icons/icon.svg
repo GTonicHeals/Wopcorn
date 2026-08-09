@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Wopcorn">
+  <!-- Marquee gold (--accent) on dark roast (--bg). The same mark as the PNGs. -->
+  <rect width="512" height="512" fill="#12100E"/>
+  <path d="M107.5 153.6 181.8 358.4 256 219.1 330.2 358.4 404.5 153.6"
+        fill="none" stroke="#E8B33D" stroke-width="49"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

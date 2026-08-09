@@ -1,0 +1,113 @@
+/*
+ * Reset + global element defaults (fe-05, task 3). Imported after tokens.css.
+ * No component styles belong in this layer.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+}
+
+html {
+  /* iOS Safari otherwise inflates text in landscape. */
+  -webkit-text-size-adjust: 100%;
+
+  /*
+   * FR-H5: nothing may push the page sideways. This belongs on <html> alone.
+   *
+   * An overflow other than `visible` on <html> propagates to the viewport and
+   * leaves the <html> box itself visible, so the page still scrolls normally
+   * and `position: sticky` still resolves against the viewport. The same
+   * declaration on <body> does *not* propagate — it turns <body> into a scroll
+   * container of its own, and every sticky descendant then sticks to a box that
+   * never scrolls, which reads as sticky being ignored entirely. That is what
+   * used to happen to the desktop sidebar, the profile rail, and the search bar.
+   */
+  overflow-x: hidden;
+}
+
+body {
+  -webkit-text-size-adjust: 100%;
+  font-size: var(--text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+svg {
+  display: block;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+ul, ol {
+  list-style: none;
+  padding: 0;
+}
+
+/* The one global utility: text for screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* A single global focus style (NFR-8). Components must not override it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
