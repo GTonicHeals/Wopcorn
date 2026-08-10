@@ -1,3 +1,4 @@
+using Wopcorn.Server.Data.Entities;
 using Wopcorn.Server.Tmdb;
 
 namespace Wopcorn.Server.Tests;
@@ -42,9 +43,14 @@ public sealed class FakeTmdbClient : ITmdbClient
 
     public int TvGenreCalls { get; private set; }
 
+    public int WatchProviderCalls { get; private set; }
+
+    public int ProviderDirectoryCalls { get; private set; }
+
     public int TotalCalls =>
         SearchCalls + DiscoverCalls + DiscoverSeriesCalls + MovieCalls
-        + SeriesCalls + SeasonCalls + GenreCalls + TvGenreCalls;
+        + SeriesCalls + SeasonCalls + GenreCalls + TvGenreCalls
+        + WatchProviderCalls + ProviderDirectoryCalls;
 
     /// <summary>When true every method raises <see cref="TmdbUnavailableException"/>.</summary>
     public bool Throw { get; set; }
@@ -182,6 +188,91 @@ public sealed class FakeTmdbClient : ITmdbClient
         return this;
     }
 
+    // --- watch providers (plan 09) ------------------------------------------
+
+    public const int NetflixId = 8;
+    public const int PrimeVideoId = 9;
+    public const int AppleTvId = 350;
+
+    /// <summary>The regions the fake publishes a directory for. Anything else is empty.</summary>
+    public HashSet<string> ProviderRegions { get; } = ["GB", "BE"];
+
+    /// <summary>
+    /// The film side of the directory. It overlaps the TV side by id — which is the
+    /// same union hazard the two genre lists have, and the reason the merge has to
+    /// check the change tracker as well as the table.
+    /// </summary>
+    public List<TmdbProviderDirectoryEntry> MovieProviders { get; } =
+    [
+        new(NetflixId, "Netflix", "/netflix.jpg", 1),
+        new(AppleTvId, "Apple TV", "/appletv.jpg", 12),
+    ];
+
+    public List<TmdbProviderDirectoryEntry> TvProviders { get; } =
+    [
+        new(NetflixId, "Netflix", "/netflix.jpg", 1),
+        new(PrimeVideoId, "Prime Video", "/prime.jpg", 3),
+    ];
+
+    /// <summary>Keyed by <c>(mediaType, tmdbId)</c> — never a season.</summary>
+    public Dictionary<(MediaType MediaType, int TmdbId), TmdbWatchProviders> WatchProviders { get; }
+        = [];
+
+    /// <summary>
+    /// Registers the providers a title is carried by, in one region.
+    /// <paramref name="flatrate"/> is what <c>availableOn</c> reports;
+    /// <paramref name="rent"/> is deliberately excluded from it.
+    /// </summary>
+    public FakeTmdbClient WithProviders(
+        MediaType mediaType,
+        int tmdbId,
+        string region,
+        int[]? flatrate = null,
+        int[]? rent = null)
+    {
+        var offers = new TmdbRegionOffers(
+            $"https://www.themoviedb.org/{tmdbId}/watch?locale={region}",
+            Offers(flatrate),
+            null,
+            null,
+            Offers(rent),
+            null);
+
+        var existing = WatchProviders.GetValueOrDefault((mediaType, tmdbId));
+        var byRegion = existing?.Results is null
+            ? new Dictionary<string, TmdbRegionOffers>(StringComparer.Ordinal)
+            : new Dictionary<string, TmdbRegionOffers>(existing.Results, StringComparer.Ordinal);
+
+        byRegion[region] = offers;
+        WatchProviders[(mediaType, tmdbId)] = new TmdbWatchProviders(tmdbId, byRegion);
+        return this;
+    }
+
+    /// <summary>Registers a title TMDB has provider data for, but none in any region.</summary>
+    public FakeTmdbClient WithNoProviders(MediaType mediaType, int tmdbId)
+    {
+        WatchProviders[(mediaType, tmdbId)] =
+            new TmdbWatchProviders(tmdbId, new Dictionary<string, TmdbRegionOffers>());
+        return this;
+    }
+
+    private IReadOnlyList<TmdbProviderOffer>? Offers(int[]? providerIds)
+    {
+        if (providerIds is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        return providerIds
+            .Select(id =>
+            {
+                var known = MovieProviders.Concat(TvProviders).FirstOrDefault(p => p.ProviderId == id);
+                return new TmdbProviderOffer(
+                    id, known?.ProviderName ?? $"Provider {id}", known?.LogoPath, known?.DisplayPriority ?? 99);
+            })
+            .ToArray();
+    }
+
     /// <summary>Makes a search query answer with these results, in this order.</summary>
     public FakeTmdbClient WithSearch(string query, params TmdbMultiSummary[] results) =>
         WithSearch(query, results.Length, results);
@@ -286,6 +377,34 @@ public sealed class FakeTmdbClient : ITmdbClient
         Guard();
 
         return Task.FromResult<IReadOnlyList<TmdbGenre>>(TvGenres);
+    }
+
+    public Task<TmdbWatchProviders?> GetWatchProvidersAsync(
+        MediaType mediaType, int tmdbId, CancellationToken ct)
+    {
+        if (mediaType is not (MediaType.Movie or MediaType.Series))
+        {
+            // The real client throws here too. A season resolving silently to its
+            // series inside the client would hide the one mapping worth being
+            // explicit about.
+            throw new ArgumentOutOfRangeException(nameof(mediaType));
+        }
+
+        WatchProviderCalls++;
+        Guard();
+
+        return Task.FromResult(WatchProviders.GetValueOrDefault((mediaType, tmdbId)));
+    }
+
+    public Task<IReadOnlyList<TmdbProviderDirectoryEntry>> GetProviderDirectoryAsync(
+        MediaType mediaType, string region, CancellationToken ct)
+    {
+        ProviderDirectoryCalls++;
+        Guard();
+
+        var side = mediaType == MediaType.Movie ? MovieProviders : TvProviders;
+        return Task.FromResult<IReadOnlyList<TmdbProviderDirectoryEntry>>(
+            ProviderRegions.Contains(region) ? side : []);
     }
 
     private void Guard()

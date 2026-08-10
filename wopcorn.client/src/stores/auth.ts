@@ -10,10 +10,12 @@ import {
 import type {
   AvatarResponse,
   LoginRequest,
+  Me,
   PasskeyOptionsResponse,
   PasskeySummary,
   RegisterRequest,
   ResetPasswordRequest,
+  ServicesRequest,
   UserSummary
 } from '@/api/types';
 
@@ -26,7 +28,21 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<UserSummary | null>(null);
   const status = ref<'loading' | 'ready'>('loading');
 
+  /**
+   * Where the user watches, and what they pay for (plan 09).
+   *
+   * This is user identity rather than a fourth cache, so it lives here beside the
+   * user rather than in a store of its own. `region` is null until they have been
+   * to settings, and every availability surface in the app is hidden while it is
+   * — the filter appears when it can do something, not before.
+   */
+  const region = ref<string | null>(null);
+  const providerIds = ref<number[]>([]);
+
   const isAuthenticated = computed(() => user.value !== null);
+
+  /** Whether the availability surfaces have anything to say yet. */
+  const hasServices = computed(() => region.value !== null && providerIds.value.length > 0);
 
   /** Deduplicates the boot request across concurrent navigations. */
   let inFlightBoot: Promise<void> | null = null;
@@ -50,7 +66,41 @@ export const useAuthStore = defineStore('auth', () => {
       }
     })();
 
-    return inFlightBoot;
+    await inFlightBoot;
+
+    // Not awaited into the boot gate above: the app renders without knowing where
+    // you watch, and a slow answer here must not hold the first paint.
+    if (user.value) void loadServices();
+  }
+
+  /**
+   * `GET /api/me` — the region and services `UserSummary` deliberately does not
+   * carry. Failure is silent: the availability surfaces simply stay hidden, which
+   * is what they do before setup anyway.
+   */
+  async function loadServices(): Promise<void> {
+    try {
+      const me = await api<Me>('/api/me');
+      region.value = me.region;
+      providerIds.value = me.providerIds;
+    } catch {
+      region.value = null;
+      providerIds.value = [];
+    }
+  }
+
+  /**
+   * `PUT /api/me/services` replaces the whole set, like the queue order and the
+   * favourites showcase — add, remove and reorder are one write.
+   */
+  async function setServices(request: ServicesRequest): Promise<void> {
+    const saved = await api<ServicesRequest>('/api/me/services', {
+      method: 'PUT',
+      body: jsonBody(request)
+    });
+
+    region.value = saved.region;
+    providerIds.value = saved.providerIds;
   }
 
   async function register(request: RegisterRequest): Promise<UserSummary> {
@@ -60,6 +110,7 @@ export const useAuthStore = defineStore('auth', () => {
     });
     user.value = created;
     status.value = 'ready';
+    void loadServices();
     return created;
   }
 
@@ -70,6 +121,7 @@ export const useAuthStore = defineStore('auth', () => {
     });
     user.value = signedIn;
     status.value = 'ready';
+    void loadServices();
     return signedIn;
   }
 
@@ -105,6 +157,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     user.value = signedIn;
     status.value = 'ready';
+    void loadServices();
     return signedIn;
   }
 
@@ -198,13 +251,20 @@ export const useAuthStore = defineStore('auth', () => {
   function clear(): void {
     user.value = null;
     status.value = 'ready';
+    region.value = null;
+    providerIds.value = [];
   }
 
   return {
     user,
     status,
+    region,
+    providerIds,
     isAuthenticated,
+    hasServices,
     boot,
+    loadServices,
+    setServices,
     register,
     login,
     passkeyLogin,

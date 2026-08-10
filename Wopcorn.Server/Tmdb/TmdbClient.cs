@@ -24,6 +24,7 @@ public sealed class TmdbClient(
     private const string MovieGenreCacheKey = "tmdb:genres:movie";
     private const string TvGenreCacheKey = "tmdb:genres:tv";
     private static readonly TimeSpan GenreCacheTtl = TimeSpan.FromHours(24);
+    private static readonly TimeSpan ProviderDirectoryCacheTtl = TimeSpan.FromHours(24);
 
     /// <summary>
     /// Process-wide budget (FR-B8): 50 requests/second sustained, 50 burst, with
@@ -125,6 +126,64 @@ public sealed class TmdbClient(
 
     public Task<IReadOnlyList<TmdbGenre>> GetTvGenresAsync(CancellationToken ct) =>
         GenreListAsync(TvGenreCacheKey, "genre/tv/list", ct);
+
+    /// <summary>
+    /// Providers for one title. The whole world comes back in one response and all
+    /// of it is deserialised — <c>AvailabilityService</c> stores every region,
+    /// because a second user in a second region would otherwise re-fetch a payload
+    /// already in hand.
+    /// </summary>
+    public Task<TmdbWatchProviders?> GetWatchProvidersAsync(
+        MediaType mediaType, int tmdbId, CancellationToken ct) =>
+        GetAsync<TmdbWatchProviders>(
+            $"{ProvidersSegment(mediaType)}/{tmdbId}/watch/providers",
+            // Deliberately no `language`: this payload is ids, names and logo paths,
+            // none of which TMDB localises.
+            new Dictionary<string, string?>(),
+            ct);
+
+    public async Task<IReadOnlyList<TmdbProviderDirectoryEntry>> GetProviderDirectoryAsync(
+        MediaType mediaType, string region, CancellationToken ct)
+    {
+        var side = ProvidersSegment(mediaType);
+        var cacheKey = $"tmdb:providers:{side}:{region}";
+
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<TmdbProviderDirectoryEntry>? cached)
+            && cached is not null)
+        {
+            return cached;
+        }
+
+        var response = await GetAsync<TmdbProviderDirectory>(
+            $"watch/providers/{side}",
+            new Dictionary<string, string?> { ["watch_region"] = region },
+            ct);
+
+        var entries = response?.Results?
+                          .Where(p => !string.IsNullOrWhiteSpace(p.ProviderName))
+                          .ToList()
+                      ?? (IReadOnlyList<TmdbProviderDirectoryEntry>)[];
+
+        if (entries.Count > 0)
+        {
+            // The directory changes monthly at most; three screens read it.
+            cache.Set(cacheKey, entries, ProviderDirectoryCacheTtl);
+        }
+
+        return entries;
+    }
+
+    /// <summary>
+    /// The upstream path segment for a media type. Seasons have no providers
+    /// endpoint at all, so this throws rather than guessing.
+    /// </summary>
+    private static string ProvidersSegment(MediaType mediaType) => mediaType switch
+    {
+        MediaType.Movie => "movie",
+        MediaType.Series => "tv",
+        _ => throw new ArgumentOutOfRangeException(nameof(mediaType),
+            "TMDB exposes watch providers for films and series only; resolve a season to its series first."),
+    };
 
     private async Task<IReadOnlyList<TmdbGenre>> GenreListAsync(
         string cacheKey, string path, CancellationToken ct)

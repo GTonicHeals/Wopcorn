@@ -200,3 +200,44 @@ public record TmdbSeasonDetail(
     TmdbCredits? Credits);
 
 public record TmdbGenreList(IReadOnlyList<TmdbGenre>? Genres);
+
+// --------------------------------------------------- watch providers (plan 09)
+
+/// <summary>One service on one offer array of a region entry.</summary>
+public record TmdbProviderOffer(int ProviderId, string? ProviderName, string? LogoPath, int DisplayPriority);
+
+/// <summary>
+/// What one region entry of <c>/watch/providers</c> carries. Every array is
+/// optional and most are absent for most titles.
+/// </summary>
+public record TmdbRegionOffers(
+    string? Link,
+    IReadOnlyList<TmdbProviderOffer>? Flatrate,
+    IReadOnlyList<TmdbProviderOffer>? Free,
+    IReadOnlyList<TmdbProviderOffer>? Ads,
+    IReadOnlyList<TmdbProviderOffer>? Rent,
+    IReadOnlyList<TmdbProviderOffer>? Buy)
+{
+    /// <summary>The offer arrays paired with the kind each one means.</summary>
+    public IEnumerable<(OfferKind Kind, IReadOnlyList<TmdbProviderOffer> Offers)> ByKind()
+    {
+        yield return (OfferKind.Flatrate, Flatrate ?? []);
+        yield return (OfferKind.Free, Free ?? []);
+        yield return (OfferKind.Ads, Ads ?? []);
+        yield return (OfferKind.Rent, Rent ?? []);
+        yield return (OfferKind.Buy, Buy ?? []);
+    }
+}
+
+/// <summary>
+/// <c>/movie/{id}/watch/providers</c> and its TV twin. <c>results</c> is keyed by
+/// ISO-3166-1 region and the whole world arrives in one response whatever region
+/// the caller cares about, which is why every region is stored (D-2).
+/// </summary>
+public record TmdbWatchProviders(int Id, IReadOnlyDictionary<string, TmdbRegionOffers>? Results);
+
+/// <summary>One row of <c>/watch/providers/{movie|tv}?watch_region=XX</c>.</summary>
+public record TmdbProviderDirectoryEntry(
+    int ProviderId, string? ProviderName, string? LogoPath, int DisplayPriority);
+
+public record TmdbProviderDirectory(IReadOnlyList<TmdbProviderDirectoryEntry>? Results);

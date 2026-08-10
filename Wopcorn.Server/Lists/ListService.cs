@@ -11,10 +11,27 @@ namespace Wopcorn.Server.Lists;
 /// The query string of <c>GET /api/lists/{list}</c> (FR-C4, FR-C5). Unknown
 /// values are ignored here, never rejected — a stale bookmark must still render.
 /// </summary>
+/// <param name="ServiceIds">
+/// TMDB provider ids (plan 09). Narrows the list to titles carrying a
+/// <b>flatrate</b> offer from one of them in <paramref name="Region"/> — the same
+/// claim <c>TitleCard.availableOn</c> makes, so the filter and the badge can never
+/// disagree.
+/// </param>
+/// <param name="Region">
+/// The viewer's region, supplied by the controller from the authenticated user.
+/// Without one there is nothing to filter against and <paramref name="ServiceIds"/>
+/// is ignored.
+/// </param>
 public record ListQuery(
-    string? Sort, string? Dir, int[] GenreIds, int[] Decades, MediaType[] Types)
+    string? Sort,
+    string? Dir,
+    int[] GenreIds,
+    int[] Decades,
+    MediaType[] Types,
+    int[] ServiceIds,
+    string? Region)
 {
-    public static readonly ListQuery None = new(null, null, [], [], []);
+    public static readonly ListQuery None = new(null, null, [], [], [], [], null);
 }
 
 /// <summary>
@@ -255,7 +272,7 @@ public sealed class ListService(
         // a queue preset, so it falls back to `added`.
         var entries = await ApplyOrder(
                 db.ListEntries.Where(QueueOf(userId)),
-                new ListQuery(preset, dir, [], [], []),
+                new ListQuery(preset, dir, [], [], [], [], null),
                 ratingAllowed: false)
             .ToListAsync(ct);
 
@@ -367,8 +384,10 @@ public sealed class ListService(
     private static Expression<Func<ListEntry, bool>> QueueOf(Guid userId) =>
         e => e.UserId == userId && e.Kind == ListKind.Queue;
 
-    private static IQueryable<ListEntry> ApplyFilters(IQueryable<ListEntry> rows, ListQuery query)
+    private IQueryable<ListEntry> ApplyFilters(IQueryable<ListEntry> rows, ListQuery query)
     {
+        var offers = db.TitleOffers;
+
         if (query.Types.Length > 0)
         {
             // Applied in the database beside genre and decade, not in memory — the
@@ -391,6 +410,22 @@ public sealed class ListService(
             var decades = query.Decades;
             rows = rows.Where(e => e.Title.ReleaseDate != null
                                    && decades.Contains(e.Title.ReleaseDate.Value.Year / 10 * 10));
+        }
+
+        if (query.ServiceIds.Length > 0 && query.Region is { } region)
+        {
+            // A join in the database, which is why offers are normalised rows rather
+            // than a JSON blob per (title, region) — a blob would need raw SQL here,
+            // against the standing rule (D-1, NFR-7).
+            //
+            // A season is carried by whatever carries its series, so the join is on
+            // ParentKey where there is one.
+            var serviceIds = query.ServiceIds;
+            rows = rows.Where(e => offers.Any(o =>
+                o.Region == region
+                && o.Kind == OfferKind.Flatrate
+                && serviceIds.Contains(o.ProviderId)
+                && o.TitleKey == (e.Title.ParentKey ?? e.TitleKey)));
         }
 
         return rows;

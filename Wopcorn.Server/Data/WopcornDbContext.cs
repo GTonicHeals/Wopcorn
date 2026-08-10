@@ -15,6 +15,10 @@ public class WopcornDbContext(DbContextOptions<WopcornDbContext> options)
     public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<FriendRequest> FriendRequests => Set<FriendRequest>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
+    public DbSet<WatchProvider> WatchProviders => Set<WatchProvider>();
+    public DbSet<TitleAvailability> TitleAvailability => Set<TitleAvailability>();
+    public DbSet<TitleOffer> TitleOffers => Set<TitleOffer>();
+    public DbSet<UserWatchProvider> UserWatchProviders => Set<UserWatchProvider>();
 
     /// <summary>
     /// Identity keeps its newer tables behind a schema version so that upgrading
@@ -164,6 +168,65 @@ public class WopcornDbContext(DbContextOptions<WopcornDbContext> options)
             e.HasOne(a => a.Title)
                 .WithMany()
                 .HasForeignKey(a => a.TitleKey)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // --- streaming availability (09) -----------------------------------
+
+        b.Entity<WatchProvider>(e =>
+        {
+            e.HasKey(p => p.TmdbProviderId);
+            e.Property(p => p.TmdbProviderId).ValueGeneratedNever();
+        });
+
+        b.Entity<TitleAvailability>(e =>
+        {
+            e.HasKey(a => new { a.TitleKey, a.Region });
+
+            // The warmer orders by this to pick the stalest rows first, which SQLite
+            // cannot do on a DateTimeOffset — see UtcInstantConverter. It fails at
+            // query time, not build time, which is exactly why it is written here
+            // rather than left to be discovered.
+            e.Property(a => a.FetchedAt).HasConversion<UtcInstantConverter>();
+            e.HasIndex(a => a.FetchedAt);
+
+            e.HasOne(a => a.Title)
+                .WithMany()
+                .HasForeignKey(a => a.TitleKey)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<TitleOffer>(e =>
+        {
+            e.HasKey(o => new { o.TitleKey, o.Region, o.ProviderId, o.Kind });
+
+            // The direction the Queue filter reads this table: "which titles does
+            // provider 8 carry in BE", never "what carries this title".
+            e.HasIndex(o => new { o.Region, o.ProviderId });
+
+            e.HasOne<TitleAvailability>()
+                .WithMany()
+                .HasForeignKey(o => new { o.TitleKey, o.Region })
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(o => o.Provider)
+                .WithMany()
+                .HasForeignKey(o => o.ProviderId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<UserWatchProvider>(e =>
+        {
+            e.HasKey(u => new { u.UserId, u.ProviderId });
+
+            e.HasOne(u => u.User)
+                .WithMany()
+                .HasForeignKey(u => u.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(u => u.Provider)
+                .WithMany()
+                .HasForeignKey(u => u.ProviderId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

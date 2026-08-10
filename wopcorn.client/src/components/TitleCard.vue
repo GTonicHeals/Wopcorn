@@ -5,6 +5,7 @@ import { RouterLink } from 'vue-router';
 import IconStar from '@/components/icons/IconStar.vue';
 import ListToggles from '@/components/ListToggles.vue';
 import PosterImage from '@/components/PosterImage.vue';
+import ProviderBadges from '@/components/ProviderBadges.vue';
 import StarDisplay from '@/components/StarDisplay.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import { formatScore } from '@/lib/format';
@@ -103,6 +104,15 @@ function onCaptureClick(event: MouseEvent): void {
       </p>
       <!-- The viewer's own progress through a series, so it takes the accent. -->
       <p v-if="progress" class="title-card__progress">{{ progress }} watched</p>
+
+      <!--
+        Where the viewer can watch it. Its own row, below the meta line and well
+        clear of the accent: these are third-party brand marks in their own
+        colours and they must not read as the app's own signal. Renders nothing
+        when the array is empty, which covers all three of "no services set",
+        "not fetched" and "on none of them".
+      -->
+      <ProviderBadges class="title-card__providers" :provider-ids="title.availableOn" />
     </RouterLink>
 
     <!-- The user's own rating, in the accent — the one thing gold ever means. -->
@@ -125,6 +135,13 @@ function onCaptureClick(event: MouseEvent): void {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /*
+   * Grid cells stretch, so a full-height card lets the block below take the
+   * slack — see .title-card__rating. Without it, a card carrying an optional
+   * line (season progress, provider badges) is taller than its neighbours and
+   * the toggle rows in one grid row stop lining up.
+   */
+  height: 100%;
 }
 
 .title-card__link {
@@ -178,10 +195,19 @@ function onCaptureClick(event: MouseEvent): void {
   margin-top: 2px;
 }
 
+.title-card__providers {
+  margin-top: var(--space-1);
+}
+
 .title-card__rating {
   /* Reserved whether or not there is a rating, so cards in a row stay aligned. */
   height: 15px;
-  margin: 3px 0 var(--space-2);
+  /*
+   * `auto` on top: this row and everything after it (the attributed rating, the
+   * toggles) are pinned to the bottom of the card, so the action row lines up
+   * across a grid row however many optional lines the cards above it carry.
+   */
+  margin: auto 0 var(--space-2);
   line-height: 0;
 }
 

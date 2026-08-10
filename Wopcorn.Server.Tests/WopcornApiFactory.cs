@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Wopcorn.Server.Auth;
+using Wopcorn.Server.Catalog;
 using Wopcorn.Server.Data;
 using Wopcorn.Server.Tmdb;
 
@@ -53,6 +54,17 @@ public class WopcornApiFactory : WebApplicationFactory<Program>
     /// blanked <c>Smtp:Host</c> above — and sends nothing either way.
     /// </summary>
     public FakeResetMailer? ResetMailer { get; init; }
+
+    /// <summary>
+    /// Opt-in availability warmer. It is removed by default for the same reason
+    /// <c>Smtp:Host</c> is blanked: a test run must not have a background thread
+    /// making its own upstream calls through the fake client and racing the
+    /// assertions every other suite makes about call counts.
+    ///
+    /// The one suite that is about the warmer turns it back on and drives it
+    /// itself.
+    /// </summary>
+    public bool WarmAvailability { get; init; }
 
     /// <summary>How many EF commands the log has recorded since it was last cleared.</summary>
     public int SqlCommandCount =>
@@ -110,6 +122,16 @@ public class WopcornApiFactory : WebApplicationFactory<Program>
                         LogLevel.Information);
                 }
             });
+
+            if (!WarmAvailability)
+            {
+                foreach (var descriptor in services
+                             .Where(d => d.ImplementationType == typeof(AvailabilityWarmer))
+                             .ToList())
+                {
+                    services.Remove(descriptor);
+                }
+            }
 
             // Registered last, so it wins over the typed HttpClient registration.
             if (TmdbClient is { } fake)

@@ -30,7 +30,8 @@ function film(tmdbId: number, title: string): TitleCard {
     seasonProgress: null,
     genreIds: [],
     lists: { watched: false, watchlist: false, queue: false },
-    myRating: null
+    myRating: null,
+    availableOn: []
   };
 }
 

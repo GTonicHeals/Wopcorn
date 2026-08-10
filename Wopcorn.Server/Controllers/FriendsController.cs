@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wopcorn.Server.Api;
+using Wopcorn.Server.Catalog;
 using Wopcorn.Server.Data;
 using Wopcorn.Server.Data.Entities;
 using Wopcorn.Server.Lists;
@@ -26,7 +27,8 @@ public class FriendsController(
     FriendshipService friendships,
     TasteMatchService tasteMatch,
     ProfileService profiles,
-    ListService lists) : ApiControllerBase
+    ListService lists,
+    AvailabilityService availability) : ApiControllerBase
 {
     /// <summary>FR-F1: a search is for finding one person, not for browsing.</summary>
     private const int MaxSearchResults = 20;
@@ -246,6 +248,7 @@ public class FriendsController(
         [FromQuery(Name = "genre")] string[]? genre,
         [FromQuery(Name = "decade")] string[]? decade,
         [FromQuery(Name = "type")] string[]? type,
+        [FromQuery(Name = "service")] string[]? service,
         CancellationToken ct = default)
     {
         // Before anything else, including validating the list name: a non-friend
@@ -257,12 +260,17 @@ public class FriendsController(
             return Problem(404, "not_found", "That is not a list we know about.");
         }
 
+        // The friend owns the rows, but `service` is the **requester's** filter
+        // against the **requester's** region — same rule as `title.availableOn`. A
+        // friend's subscriptions are their business.
         var query = new ListQuery(
             sort,
             dir,
             ListsController.ParseInts(genre),
             ListsController.ParseInts(decade),
-            ListsController.ParseTypes(type));
+            ListsController.ParseTypes(type),
+            ListsController.ParseInts(service),
+            (await availability.ViewerAsync(CurrentUserId, ct)).Region);
 
         var entries = await lists.GetAsync(userId, CurrentUserId, kind, query, ct);
         var count = await lists.CountAsync(userId, kind, ct);

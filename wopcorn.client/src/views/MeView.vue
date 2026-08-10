@@ -4,6 +4,7 @@ import { RouterLink, useRouter } from 'vue-router';
 
 import BaseButton from '@/components/BaseButton.vue';
 import FormField from '@/components/FormField.vue';
+import ProviderLogo from '@/components/ProviderLogo.vue';
 import ScreenHeader from '@/components/ScreenHeader.vue';
 import TmdbAttribution from '@/components/TmdbAttribution.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
@@ -11,8 +12,10 @@ import IconKey from '@/components/icons/IconKey.vue';
 import { ApiError } from '@/api/client';
 import { distributeErrors } from '@/api/formErrors';
 import { formatShortDate } from '@/lib/format';
+import { guessRegion, regionOptions } from '@/lib/regions';
 import { isPasskeyCancellation, isPasskeySupported } from '@/lib/webauthn';
 import { useAuthStore } from '@/stores/auth';
+import { useConfigStore } from '@/stores/config';
 import { useListsStore } from '@/stores/lists';
 import { THEME_OPTIONS, useThemeStore, type ThemePreference } from '@/stores/theme';
 import type { PasskeySummary } from '@/api/types';
@@ -21,6 +24,7 @@ import type { PasskeySummary } from '@/api/types';
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 
 const auth = useAuthStore();
+const config = useConfigStore();
 const theme = useThemeStore();
 const lists = useListsStore();
 const router = useRouter();
@@ -125,6 +129,89 @@ async function removeAvatar(): Promise<void> {
   } catch (error) {
     avatarError.value =
       error instanceof ApiError ? error.message : 'That did not go through.';
+  }
+}
+
+// ----------------------------------------------------------- where you watch
+
+/**
+ * Setup nobody completes is a feature nobody has, so two things make it likelier:
+ * the region is **pre-selected** from the browser's language for the user to
+ * confirm — never applied silently — and the directory is shown in TMDB's own
+ * `display_priority` order, so the handful of services someone might actually
+ * have are above the fold and the long tail is behind "Show all".
+ */
+const VISIBLE_PROVIDERS = 8;
+
+const regionChoice = ref(auth.region ?? guessRegion() ?? '');
+const chosenServices = ref<number[]>([...auth.providerIds]);
+const showAllProviders = ref(false);
+const savingServices = ref(false);
+const servicesError = ref('');
+const servicesSaved = ref(false);
+
+const regions = computed(() => regionOptions(auth.region));
+const providers = computed(() => config.providersByRegion.get(auth.region ?? '') ?? []);
+
+const visibleProviders = computed(() =>
+  showAllProviders.value ? providers.value : providers.value.slice(0, VISIBLE_PROVIDERS)
+);
+
+/** A service chosen before the directory arrived must not vanish from the grid. */
+const hiddenChosen = computed(
+  () => chosenServices.value.filter((id) => !visibleProviders.value.some((p) => p.id === id)).length
+);
+
+const servicesChanged = computed(
+  () =>
+    regionChoice.value !== (auth.region ?? '') ||
+    chosenServices.value.length !== auth.providerIds.length ||
+    chosenServices.value.some((id) => !auth.providerIds.includes(id))
+);
+
+watch(
+  () => auth.region,
+  (next) => {
+    if (next) {
+      regionChoice.value = next;
+      void config.loadProviders(next);
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => auth.providerIds,
+  (next) => {
+    if (!savingServices.value) chosenServices.value = [...next];
+  }
+);
+
+function toggleService(id: number): void {
+  chosenServices.value = chosenServices.value.includes(id)
+    ? chosenServices.value.filter((existing) => existing !== id)
+    : [...chosenServices.value, id];
+}
+
+async function saveServices(): Promise<void> {
+  if (savingServices.value || !regionChoice.value) return;
+
+  savingServices.value = true;
+  servicesError.value = '';
+  servicesSaved.value = false;
+
+  try {
+    await auth.setServices({
+      region: regionChoice.value,
+      providerIds: chosenServices.value
+    });
+    await config.loadProviders(auth.region);
+    servicesSaved.value = true;
+  } catch (error) {
+    servicesError.value =
+      error instanceof ApiError ? error.message : 'That did not go through.';
+  } finally {
+    savingServices.value = false;
   }
 }
 
@@ -330,6 +417,82 @@ async function signOut(): Promise<void> {
         </BaseButton>
       </section>
 
+      <!--
+        Where you watch. Setting this is what turns on the availability badges,
+        the "Where to watch" block on a title, and the Streaming filter — none of
+        which render at all until it is done.
+      -->
+      <section class="me__section" aria-labelledby="me-watch">
+        <h2 id="me-watch" class="me__legend">Where you watch</h2>
+        <p class="me__note">
+          Wopcorn will show which of your services carry a title, and let you filter
+          your queue by what you can watch tonight.
+        </p>
+
+        <label class="me__field">
+          <span class="me__label">Region</span>
+          <select v-model="regionChoice" class="me__select">
+            <option value="" disabled>Choose a region</option>
+            <option v-for="option in regions" :key="option.code" :value="option.code">
+              {{ option.name }}
+            </option>
+          </select>
+        </label>
+
+        <!--
+          Which services exist depends on the region, and the server answers that
+          for the region it has stored — so the grid appears once the region is
+          saved. Two steps, but each is honest about what it knows.
+        -->
+        <p v-if="!auth.region" class="me__note">
+          Save your region and the services available there will appear here.
+        </p>
+
+        <p v-else-if="providers.length === 0" class="me__note">
+          We could not load the services for {{ auth.region }} just now.
+        </p>
+
+        <template v-else>
+          <ul class="services">
+            <li v-for="provider in visibleProviders" :key="provider.id">
+              <!-- Chosen is the user's own state, so it takes the accent. -->
+              <button
+                type="button"
+                class="services__btn"
+                :class="{ 'services__btn--on': chosenServices.includes(provider.id) }"
+                :aria-pressed="chosenServices.includes(provider.id)"
+                @click="toggleService(provider.id)"
+              >
+                <ProviderLogo :provider="provider" :size="28" />
+                <span class="services__name">{{ provider.name }}</span>
+              </button>
+            </li>
+          </ul>
+
+          <button
+            v-if="providers.length > visibleProviders.length"
+            type="button"
+            class="me__disclosure"
+            @click="showAllProviders = true"
+          >
+            Show all {{ providers.length }} services
+            <template v-if="hiddenChosen > 0"> ({{ hiddenChosen }} chosen)</template>
+          </button>
+        </template>
+
+        <p v-if="servicesError" class="me__error" role="alert">{{ servicesError }}</p>
+        <p v-else-if="servicesSaved" class="me__note" role="status">Saved.</p>
+
+        <BaseButton
+          variant="primary"
+          :loading="savingServices"
+          :disabled="!regionChoice || !servicesChanged"
+          @click="saveServices"
+        >
+          Save
+        </BaseButton>
+      </section>
+
       <section class="me__section" aria-labelledby="me-theme">
         <h2 id="me-theme" class="me__legend">Appearance</h2>
         <div class="me__segmented" role="radiogroup" aria-labelledby="me-theme">
@@ -450,6 +613,79 @@ async function signOut(): Promise<void> {
 .passkeys__meta {
   font-size: var(--text-xs);
   color: var(--text-muted);
+}
+
+/* -------------------------------------------------------- where you watch */
+
+.me__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.me__label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.me__select {
+  min-height: var(--tap-min);
+  width: 100%;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-base);
+}
+
+.services {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.services__btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+/* A service you subscribe to is your own state, so it earns the accent. */
+.services__btn--on {
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.services__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.me__disclosure {
+  min-height: var(--tap-min);
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 .me__avatar-actions {

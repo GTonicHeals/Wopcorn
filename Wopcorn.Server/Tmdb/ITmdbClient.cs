@@ -1,3 +1,5 @@
+using Wopcorn.Server.Data.Entities;
+
 namespace Wopcorn.Server.Tmdb;
 
 /// <summary>
@@ -40,6 +42,33 @@ public interface ITmdbClient
 
     /// <summary><c>/genre/tv/list</c>. Seeded into the same table as the film list.</summary>
     Task<IReadOnlyList<TmdbGenre>> GetTvGenresAsync(CancellationToken ct);
+
+    /// <summary>
+    /// <c>/movie/{id}/watch/providers</c> or <c>/tv/{id}/watch/providers</c> — who
+    /// carries this title, keyed by region.
+    /// </summary>
+    /// <param name="mediaType">
+    /// <see cref="MediaType.Movie"/> or <see cref="MediaType.Series"/> only. TMDB
+    /// exposes providers at those two grains and nowhere else, so passing
+    /// <see cref="MediaType.Season"/> is a programming error and throws
+    /// <see cref="ArgumentOutOfRangeException"/>: resolving a season to its series
+    /// is the caller's job, and a silent fallback here would hide the one mapping
+    /// worth being explicit about.
+    /// </param>
+    /// <remarks>
+    /// A 404 means "TMDB has no provider data for this title", not "no such
+    /// title" — it comes back as <c>null</c> and must never be conflated with the
+    /// detail 404 that produces <c>not_found</c>.
+    /// </remarks>
+    Task<TmdbWatchProviders?> GetWatchProvidersAsync(
+        MediaType mediaType, int tmdbId, CancellationToken ct);
+
+    /// <summary>
+    /// <c>/watch/providers/{movie|tv}?watch_region=XX</c> — the services TMDB knows
+    /// about in one region, for one side of its catalog.
+    /// </summary>
+    Task<IReadOnlyList<TmdbProviderDirectoryEntry>> GetProviderDirectoryAsync(
+        MediaType mediaType, string region, CancellationToken ct);
 }
 
 /// <summary>

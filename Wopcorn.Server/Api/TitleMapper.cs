@@ -21,6 +21,13 @@ public record ListMembership(bool Watched, bool Watchlist, bool Queue)
 /// be able to say "3 / 5 seasons" without opening it; the cost is one extra
 /// grouped query per page, not per title.
 /// </param>
+/// <param name="AvailableOn">
+/// The TMDB provider ids <b>the viewer themself</b> has configured that carry this
+/// title on subscription in their region (plan 09). Empty when they have no
+/// services set, when availability has not been fetched, and when the title is on
+/// none of them — three states the card renders identically. Like
+/// <paramref name="SeasonProgress"/> it costs one grouped query per page.
+/// </param>
 public record TitleCard(
     string Key,
     string MediaType,
@@ -37,7 +44,8 @@ public record TitleCard(
     SeasonProgressDto? SeasonProgress,
     IReadOnlyList<int> GenreIds,
     ListMembership Lists,
-    int? MyRating);
+    int? MyRating,
+    IReadOnlyList<int> AvailableOn);
 
 public record GenreDto(int Id, string Name, IReadOnlyList<string> MediaTypes);
 
@@ -93,10 +101,11 @@ public record TitleDetail(
     IReadOnlyList<CastMemberDto> Cast,
     IReadOnlyList<SeasonSummaryDto> Seasons,
     IReadOnlyList<FriendWatchedDto> FriendsWatched,
-    bool Stale)
+    bool Stale,
+    IReadOnlyList<int> AvailableOn)
     : TitleCard(Key, MediaType, TmdbId, SeasonNumber, ParentKey, Title, ReleaseYear, PosterPath,
         TmdbVoteAverage, RuntimeMinutes, EpisodeCount, SeasonCount, SeasonProgress, GenreIds,
-        Lists, MyRating);
+        Lists, MyRating, AvailableOn);
 
 /// <summary>A page of <see cref="TitleCard"/>s — the search and discover response.</summary>
 public record TitlePage(int Page, int TotalPages, int TotalResults, IReadOnlyList<TitleCard> Results);
@@ -106,7 +115,7 @@ public record TitlePage(int Page, int TotalPages, int TotalResults, IReadOnlyLis
 /// per-user decoration (<c>lists</c>, <c>myRating</c>) for a whole page in one
 /// query — never per title (NFR-2, FR-C3).
 /// </summary>
-public sealed class TitleMapper(WopcornDbContext db)
+public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availability)
 {
     /// <summary>Title.CastJson is our own storage format, so it uses web defaults.</summary>
     private static readonly JsonSerializerOptions CastJsonOptions = new(JsonSerializerDefaults.Web);
@@ -120,11 +129,34 @@ public sealed class TitleMapper(WopcornDbContext db)
     /// fetched per title so a grid of series still costs a constant number of
     /// queries (NFR-2).
     /// </param>
-    public record UserContext(ListMembership Lists, int? Rating, int WatchedSeasons = 0)
+    /// <param name="AvailableOn">
+    /// Which of the viewer's own services carry this title on subscription, in
+    /// their region (plan 09). It rides in the page's decoration for the same
+    /// reason everything else here does — one grouped query, never one per title —
+    /// and it is loaded from the <b>viewer's</b> id on every path, including a
+    /// friend's list, because a badge saying "you can watch this" must mean you.
+    /// </param>
+    public record UserContext(
+        ListMembership Lists,
+        int? Rating,
+        int WatchedSeasons = 0,
+        IReadOnlyList<int>? AvailableOn = null)
     {
         public static readonly UserContext None = new(ListMembership.None, null);
+
+        public IReadOnlyList<int> Services => AvailableOn ?? [];
     }
 
+    /// <summary>
+    /// The whole page's per-viewer decoration, in a constant number of queries.
+    /// </summary>
+    /// <remarks>
+    /// <c>availableOn</c> is loaded here rather than threaded through every action
+    /// as a separate argument. Every call site already supplies the viewer's id and
+    /// the page's keys, which is exactly what availability needs, and folding it in
+    /// means there is no call site left to forget — a missed one would render empty
+    /// badges silently rather than failing.
+    /// </remarks>
     public async Task<Dictionary<string, UserContext>> LoadUserContextAsync(
         Guid userId, IReadOnlyCollection<string> keys, CancellationToken ct)
     {
@@ -176,6 +208,15 @@ public sealed class TitleMapper(WopcornDbContext db)
                 : UserContext.None with { WatchedSeasons = count };
         }
 
+        // Costs nothing at all for a viewer who has configured no services, which is
+        // every viewer until they have been to settings.
+        foreach (var (key, providerIds) in await availability.AvailableOnAsync(userId, keys, ct))
+        {
+            context[key] = context.TryGetValue(key, out var existing)
+                ? existing with { AvailableOn = providerIds }
+                : UserContext.None with { AvailableOn = providerIds };
+        }
+
         return context;
     }
 
@@ -199,7 +240,8 @@ public sealed class TitleMapper(WopcornDbContext db)
             SeasonProgressOf(title, entry),
             title.Genres.Select(g => g.GenreTmdbId).OrderBy(id => id).ToArray(),
             entry.Lists,
-            entry.Rating);
+            entry.Rating,
+            entry.Services);
     }
 
     /// <summary>
@@ -265,7 +307,8 @@ public sealed class TitleMapper(WopcornDbContext db)
             DeserializeCast(title.CastJson),
             seasons ?? [],
             friendsWatched ?? [],
-            stale);
+            stale,
+            entry.Services);
     }
 
     /// <summary>

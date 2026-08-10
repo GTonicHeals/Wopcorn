@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import { defineStore } from 'pinia';
 
 import { api } from '@/api/client';
-import type { Genre, TitleCard, TitleDetail } from '@/api/types';
+import type { Genre, TitleAvailability, TitleCard, TitleDetail } from '@/api/types';
 
 /**
  * One `Map<key, TitleCard | TitleDetail>` shared by every view (fe-06, task 10).
@@ -125,8 +125,49 @@ export const useTitlesStore = defineStore('titles', () => {
       // A season's genres are its series' genres.
       genreIds: detail.genreIds,
       lists: season.lists,
-      myRating: season.myRating
+      myRating: season.myRating,
+      // And so is where it can be watched — TMDB has no season-level providers,
+      // so a season resolves to its series everywhere, including here.
+      availableOn: detail.availableOn
     }));
+  }
+
+  // ---------------------------------------------------------- availability
+
+  /**
+   * `GET /api/titles/{key}/availability`, cached beside the detail and keyed the
+   * same way, so navigating back to a title does not refetch it.
+   *
+   * Deliberately a separate call from the detail (D-3): folding it in would tie
+   * a 24-hour answer to the detail's seven-day TTL and let a providers failure
+   * delay the page. The title screen renders first and this arrives after.
+   */
+  const availabilityByKey = ref(new Map<string, TitleAvailability>());
+  const availabilityRequests = new Map<string, Promise<TitleAvailability>>();
+
+  function availability(key: string): TitleAvailability | null {
+    return availabilityByKey.value.get(key) ?? null;
+  }
+
+  async function loadAvailability(key: string, force = false): Promise<TitleAvailability> {
+    const cached = availabilityByKey.value.get(key);
+    if (!force && cached) return cached;
+
+    const pending = availabilityRequests.get(key);
+    if (pending && !force) return pending;
+
+    const request = (async () => {
+      try {
+        const answer = await api<TitleAvailability>(`/api/titles/${key}/availability`);
+        availabilityByKey.value = new Map(availabilityByKey.value).set(key, answer);
+        return answer;
+      } finally {
+        availabilityRequests.delete(key);
+      }
+    })();
+
+    availabilityRequests.set(key, request);
+    return request;
   }
 
   /** The cached TMDB genre list, for the list-view filter sheet. */
@@ -159,17 +200,23 @@ export const useTitlesStore = defineStore('titles', () => {
   function clear(): void {
     byKey.value = new Map();
     detailLoaded.value = new Set();
+    // Availability is answered for one region — the signed-out user's — so it
+    // must not outlive the session either.
+    availabilityByKey.value = new Map();
   }
 
   return {
     byKey,
     genres,
     detailLoaded,
+    availabilityByKey,
     get,
     upsert,
     upsertMany,
     patch,
     loadDetail,
+    availability,
+    loadAvailability,
     loadGenres,
     genreName,
     clear

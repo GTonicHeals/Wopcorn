@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wopcorn.Server.Api;
+using Wopcorn.Server.Catalog;
 using Wopcorn.Server.Data.Entities;
 
 namespace Wopcorn.Server.Controllers;
@@ -10,6 +11,7 @@ namespace Wopcorn.Server.Controllers;
 [Route("api/me")]
 public class MeController(
     UserManager<AppUser> userManager,
+    AvailabilityService availability,
     IWebHostEnvironment environment) : ApiControllerBase
 {
     /// <summary>2 MB (FR-A7).</summary>
@@ -26,6 +28,71 @@ public class MeController(
     public record RenameRequest([Required, StringLength(32, MinimumLength = 2)] string DisplayName);
 
     public record AvatarResponse(string? AvatarUrl);
+
+    /// <summary>Body of <c>PUT /api/me/services</c> — the complete set, like the queue order.</summary>
+    public record ServicesRequest(string? Region, int[]? ProviderIds);
+
+    /// <summary>
+    /// The signed-in user's own view of themself, which <c>UserSummary</c>
+    /// deliberately is not: that shape also describes friends, and a friend's
+    /// region and subscriptions are their business.
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> Get(CancellationToken ct)
+    {
+        var user = await userManager.FindByIdAsync(CurrentUserId.ToString());
+        if (user is null)
+        {
+            return Problem(404, "not_found", "That user no longer exists.");
+        }
+
+        var (region, providerIds) = await availability.ViewerAsync(CurrentUserId, ct);
+        var summary = user.ToSummary();
+
+        return Ok(new MeDto(
+            summary.Id, summary.DisplayName, summary.AvatarUrl, region, providerIds));
+    }
+
+    /// <summary>
+    /// Replaces the whole set of services, like <c>PUT /api/queue/order</c> and
+    /// <c>PUT /api/me/favorites</c> — add, remove and reorder are one write.
+    ///
+    /// An unknown provider id is rejected rather than dropped: a silently dropped
+    /// service is a filter that lies about what it is filtering on.
+    /// </summary>
+    [HttpPut("services")]
+    public async Task<IActionResult> SetServices(ServicesRequest request, CancellationToken ct)
+    {
+        if (!AvailabilityService.TryNormalizeRegion(request.Region, out var region))
+        {
+            return ServicesError("region", "Region must be a two-letter country code, like GB.");
+        }
+
+        var known = await availability.DirectoryIdsAsync(region, ct);
+        if (known.Count == 0)
+        {
+            // TMDB publishes no directory for this region, or could not be asked.
+            // Either way we cannot honour a set of services against it.
+            return ServicesError("region", "We do not have streaming services for that region.");
+        }
+
+        var providerIds = (request.ProviderIds ?? []).Distinct().ToArray();
+        var unknown = providerIds.Where(id => !known.Contains(id)).ToArray();
+        if (unknown.Length > 0)
+        {
+            return ServicesError(
+                "providerIds",
+                $"These are not services we know about in {region}: {string.Join(", ", unknown)}.");
+        }
+
+        await availability.SetServicesAsync(CurrentUserId, region, providerIds, ct);
+
+        return Ok(new ServicesDto(region, providerIds));
+    }
+
+    private IActionResult ServicesError(string field, string message) =>
+        BadRequest(new ApiError("validation_failed", "Some fields need attention.",
+            new Dictionary<string, string[]> { [field] = [message] }));
 
     [HttpPut]
     public async Task<IActionResult> Rename(RenameRequest request)

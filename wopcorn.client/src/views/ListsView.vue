@@ -18,7 +18,10 @@ import SpinnerBlock from '@/components/SpinnerBlock.vue';
 import TitleGrid from '@/components/TitleGrid.vue';
 import TitleQuickView from '@/components/TitleQuickView.vue';
 import { listTotals, titleCount } from '@/lib/format';
+import { matchesServices, viewerServices } from '@/lib/services';
 import { readViewMode, writeViewMode, type ViewMode } from '@/lib/viewMode';
+import { useAuthStore } from '@/stores/auth';
+import { useConfigStore } from '@/stores/config';
 import { defaultDirection, useListsStore } from '@/stores/lists';
 import { useTitlesStore } from '@/stores/titles';
 import type { ListName, ListSort, MediaType, SortDirection, TitleCard } from '@/api/types';
@@ -40,6 +43,8 @@ import type { ListName, ListSort, MediaType, SortDirection, TitleCard } from '@/
  */
 const props = defineProps<{ list: ListName }>();
 
+const auth = useAuthStore();
+const config = useConfigStore();
 const titles = useTitlesStore();
 const lists = useListsStore();
 
@@ -57,6 +62,7 @@ const state = computed(() => lists.state[props.list]);
 const selectedGenres = ref<number[]>([]);
 const selectedDecades = ref<number[]>([]);
 const selectedTypes = ref<MediaType[]>([]);
+const selectedServices = ref<number[]>([]);
 const filtersOpen = ref(false);
 const sortOpen = ref(false);
 
@@ -73,9 +79,17 @@ watch(
     selectedGenres.value = [];
     selectedDecades.value = [];
     selectedTypes.value = [];
+    selectedServices.value = [];
     void lists.ensure(list);
     if (list !== 'queue') void titles.loadGenres();
   },
+  { immediate: true }
+);
+
+// The directory names the badges and the filter options; it is cached per region.
+watch(
+  () => auth.region,
+  (region) => void config.loadProviders(region),
   { immediate: true }
 );
 
@@ -109,16 +123,48 @@ const typeOptions = computed(() => {
   return TYPE_FILTERS.filter((option) => present.has(option.value));
 });
 
+/**
+ * The viewer's own services, in the directory's order.
+ *
+ * **When none are configured this is empty and none of the streaming controls
+ * render** — no empty group, no disabled chip, no nag. The filter appears when it
+ * can do something, and until then the list looks exactly as it did.
+ */
+const serviceOptions = computed(() =>
+  viewerServices(config.providersByRegion.get(auth.region ?? '') ?? [], auth.providerIds)
+);
+
 const hasFilters = computed(
   () =>
     selectedGenres.value.length > 0 ||
     selectedDecades.value.length > 0 ||
-    selectedTypes.value.length > 0
+    selectedTypes.value.length > 0 ||
+    selectedServices.value.length > 0
 );
+
+/** True once every configured service is selected — what the one-tap chip sets. */
+const onMyServices = computed(
+  () =>
+    serviceOptions.value.length > 0 &&
+    selectedServices.value.length === serviceOptions.value.length
+);
+
+function toggleOnMyServices(): void {
+  selectedServices.value = onMyServices.value
+    ? []
+    : serviceOptions.value.map((provider) => provider.id);
+}
 
 const visible = computed(() =>
   entryTitles.value.filter((title) => {
     if (selectedTypes.value.length > 0 && !selectedTypes.value.includes(title.mediaType)) {
+      return false;
+    }
+
+    // `availableOn` already *is* the answer the `service=` query parameter gives —
+    // the viewer's own services, flatrate, in their region — so this narrows the
+    // rows already on screen rather than costing a round trip.
+    if (!matchesServices(title.availableOn, selectedServices.value)) {
       return false;
     }
 
@@ -156,13 +202,25 @@ function toggleDecade(decade: number): void {
     : [...selectedDecades.value, decade];
 }
 
+function toggleService(id: number): void {
+  selectedServices.value = selectedServices.value.includes(id)
+    ? selectedServices.value.filter((existing) => existing !== id)
+    : [...selectedServices.value, id];
+}
+
 function clearFilters(): void {
   selectedGenres.value = [];
   selectedDecades.value = [];
   selectedTypes.value = [];
+  selectedServices.value = [];
 }
 
 const activeChips = computed(() => [
+  ...selectedServices.value.map((id) => ({
+    key: `s${id}`,
+    label: serviceOptions.value.find((provider) => provider.id === id)?.name ?? `Service ${id}`,
+    remove: () => toggleService(id)
+  })),
   ...selectedTypes.value.map((type) => ({
     key: `t${type}`,
     label: TYPE_FILTERS.find((option) => option.value === type)?.label ?? type,
@@ -334,6 +392,25 @@ const headerCount = computed(() => {
           Filters<span v-if="hasFilters"> ({{ activeChips.length }})</span>
         </button>
 
+        <!--
+          The payoff, one tap: which of these can I actually watch tonight. Absent
+          entirely until services are configured — a disabled control that can
+          never do anything is worse than no control.
+
+          It is the signed-in user's own state, so it takes the accent, like every
+          other piece of gold in this app.
+        -->
+        <button
+          v-if="serviceOptions.length > 0"
+          type="button"
+          class="tools__btn"
+          :class="{ 'tools__btn--on': onMyServices }"
+          :aria-pressed="onMyServices"
+          @click="toggleOnMyServices"
+        >
+          On my services
+        </button>
+
         <!-- Pressed state is a fill *and* a filled icon, never colour alone. -->
         <div v-if="canSwitchView" class="viewswitch" role="group" aria-label="View">
           <button
@@ -441,6 +518,20 @@ const headerCount = computed(() => {
     </BaseSheet>
 
     <BaseSheet v-model:open="filtersOpen" title="Filters">
+      <!-- Streaming sits above Type: "what can I watch tonight" outranks "what
+           kind of thing is it". Absent when there are no services configured. -->
+      <fieldset v-if="serviceOptions.length > 0" class="sheet-group">
+        <legend class="sheet-legend">Streaming</legend>
+        <label v-for="provider in serviceOptions" :key="provider.id" class="sheet-option">
+          <input
+            type="checkbox"
+            :checked="selectedServices.includes(provider.id)"
+            @change="toggleService(provider.id)"
+          />
+          <span>{{ provider.name }}</span>
+        </label>
+      </fieldset>
+
       <!-- Type sits above Genre: it is the coarsest cut, and the likeliest
            reason someone opened this sheet at all. -->
       <fieldset v-if="typeOptions.length > 1" class="sheet-group">
@@ -545,6 +636,13 @@ const headerCount = computed(() => {
 .tools__btn :deep(svg) {
   width: 16px;
   height: 16px;
+}
+
+/* An active filter is the user's own state, so it earns the accent. */
+.tools__btn--on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* Pushed to the far end of the tools row — a display switch, not a filter. */

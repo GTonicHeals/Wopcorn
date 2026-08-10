@@ -13,7 +13,10 @@ namespace Wopcorn.Server.Controllers;
 /// <c>CurrentUserId</c> and nothing else (NFR-3).
 /// </summary>
 [Route("api/lists")]
-public class ListsController(ListService lists, TitleCacheService titles) : ApiControllerBase
+public class ListsController(
+    ListService lists,
+    TitleCacheService titles,
+    AvailabilityService availability) : ApiControllerBase
 {
     /// <summary>Body of <c>PUT /api/lists/{list}/{key}</c> — every field optional.</summary>
     public record AddRequest(string[]? AlsoRemoveFrom, DateOnly? WatchedOn);
@@ -28,6 +31,9 @@ public class ListsController(ListService lists, TitleCacheService titles) : ApiC
         [FromQuery(Name = "genre")] string[]? genre,
         [FromQuery(Name = "decade")] string[]? decade,
         [FromQuery(Name = "type")] string[]? type,
+        // Plan 09. Filtered against the viewer's own region, which is state on the
+        // user and never a query parameter (NFR-3).
+        [FromQuery(Name = "service")] string[]? service,
         CancellationToken ct = default)
     {
         if (!ListKinds.TryParse(list, out var kind))
@@ -35,7 +41,14 @@ public class ListsController(ListService lists, TitleCacheService titles) : ApiC
             return UnknownList();
         }
 
-        var query = new ListQuery(sort, dir, ParseInts(genre), ParseInts(decade), ParseTypes(type));
+        var query = new ListQuery(
+            sort,
+            dir,
+            ParseInts(genre),
+            ParseInts(decade),
+            ParseTypes(type),
+            ParseInts(service),
+            (await availability.ViewerAsync(CurrentUserId, ct)).Region);
 
         // Owner and viewer are the same person here; they differ only on
         // GET /api/friends/{userId}/lists/{list} (be-04).

@@ -14,6 +14,16 @@ export type UserSummary = {
   avatarUrl: string | null;
 };
 
+/**
+ * The signed-in user's own view of themself, from `GET /api/me`. `UserSummary`
+ * deliberately does not carry these — it also describes friends, and a friend's
+ * region and subscriptions are their business.
+ */
+export type Me = UserSummary & {
+  region: string | null; // ISO-3166-1 alpha-2; null until set
+  providerIds: number[];
+};
+
 export type ListMembership = {
   watched: boolean;
   watchlist: boolean;
@@ -55,6 +65,16 @@ export type TitleCard = {
   genreIds: number[];
   lists: ListMembership; // for the authenticated user
   myRating: number | null;
+  /**
+   * The provider ids **the viewer themself** subscribes to that carry this title
+   * on subscription in their region. Empty means one of three things — no
+   * services configured, availability not fetched, or on none of them — and the
+   * card must not claim to know which, so an empty array renders nothing at all.
+   *
+   * Flatrate only. Rent and buy are deliberately absent: "I can watch this now"
+   * and "I can pay to watch this now" are different claims.
+   */
+  availableOn: number[];
 };
 
 /** One row of a series' Seasons section, already decorated for the viewer. */
@@ -82,11 +102,44 @@ export type TitleDetail = TitleCard & {
   stale: boolean; // cached copy served while a refresh failed
 };
 
+// ------------------------------------------------------- streaming availability
+
+/** One streaming service, as TMDB (via JustWatch) knows it. */
+export type WatchProvider = {
+  id: number;
+  name: string;
+  logoPath: string | null; // bare TMDB path, rendered like a poster
+};
+
+export type OfferKind = 'flatrate' | 'free' | 'ads' | 'rent' | 'buy';
+
+/**
+ * Where one title can be watched, in the viewer's region.
+ *
+ * `fetchedAt: null` means we have never looked — render "unknown", never an
+ * empty section. It is a different answer from a timestamp with no `offers`
+ * beside it, which means we looked and nobody carries it.
+ */
+export type TitleAvailability = {
+  region: string;
+  fetchedAt: string | null;
+  link: string | null; // the JustWatch page, the one outbound link
+  offers: { kind: OfferKind; providers: WatchProvider[] }[];
+};
+
+/** Body and response of `PUT /api/me/services` — the complete set. */
+export type ServicesRequest = {
+  region: string;
+  providerIds: number[];
+};
+
 // -------------------------------------------------------------------- config
 
 export type Attribution = {
   text: string;
   logoUrl: string;
+  /** JustWatch's attribution, to be rendered wherever availability is. */
+  availabilityText: string;
 };
 
 export type AppConfig = {
@@ -94,6 +147,7 @@ export type AppConfig = {
   posterSizes: string[];
   backdropSizes: string[];
   profileSizes: string[];
+  logoSizes: string[];
   attribution: Attribution;
 };
 

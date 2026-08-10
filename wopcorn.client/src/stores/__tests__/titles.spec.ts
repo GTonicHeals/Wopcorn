@@ -44,6 +44,7 @@ function card(overrides: Partial<TitleCard> = {}): TitleCard {
     genreIds: [],
     lists: { watched: false, watchlist: false, queue: false },
     myRating: null,
+    availableOn: [],
     ...overrides
   };
 }

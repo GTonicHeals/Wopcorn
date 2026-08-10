@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
 import { api } from '@/api/client';
-import type { AppConfig } from '@/api/types';
+import type { AppConfig, WatchProvider } from '@/api/types';
 
 /** Fallback so an unreachable /api/config never leaves the UI with dead image URLs. */
 const FALLBACK: AppConfig = {
@@ -10,9 +10,11 @@ const FALLBACK: AppConfig = {
   posterSizes: ['w92', 'w154', 'w185', 'w342', 'w500', 'w780', 'original'],
   backdropSizes: ['w300', 'w780', 'w1280', 'original'],
   profileSizes: ['w45', 'w185', 'h632', 'original'],
+  logoSizes: ['w45', 'w92', 'w154', 'w185', 'original'],
   attribution: {
     text: 'This product uses the TMDB API but is not endorsed or certified by TMDB.',
-    logoUrl: ''
+    logoUrl: '',
+    availabilityText: 'Streaming availability data provided by JustWatch.'
   }
 };
 
@@ -90,9 +92,64 @@ export const useConfigStore = defineStore('config', () => {
     return imageUrl(config.value.profileSizes, path, targetWidthPx);
   }
 
+  /** A provider's brand mark. Rendered tiny, so the size tokens start at w45. */
+  function logoUrl(path: string | null, targetWidthPx: number): string | null {
+    return imageUrl(config.value.logoSizes, path, targetWidthPx);
+  }
+
   /** FR-B9: this string must be rendered, not paraphrased. */
   const attributionText = computed(() => config.value.attribution.text);
   const attributionLogoUrl = computed(() => config.value.attribution.logoUrl);
+
+  /** The same rule for the streaming data: rendered wherever availability is. */
+  const availabilityAttribution = computed(() => config.value.attribution.availabilityText);
+
+  // ------------------------------------------------------ provider directory
+
+  /**
+   * The services TMDB publishes for the viewer's region, cached per region.
+   *
+   * It is reference data that changes monthly and is read by three screens —
+   * settings, the filter sheet, and the badges — so refetching it per screen is
+   * exactly what NFR-2 exists to prevent. It lives here rather than in `titles`
+   * because it is not a title, and it is keyed by region because it is not
+   * global either.
+   */
+  const providersByRegion = ref(new Map<string, WatchProvider[]>());
+  const providerRequests = new Map<string, Promise<WatchProvider[]>>();
+
+  async function loadProviders(region: string | null): Promise<WatchProvider[]> {
+    if (!region) return [];
+
+    const cached = providersByRegion.value.get(region);
+    if (cached) return cached;
+
+    const pending = providerRequests.get(region);
+    if (pending) return pending;
+
+    const request = (async () => {
+      try {
+        const providers = await api<WatchProvider[]>('/api/providers');
+        providersByRegion.value = new Map(providersByRegion.value).set(region, providers);
+        return providers;
+      } catch {
+        // No directory costs the settings grid its options and the badges their
+        // names; lists, ratings and everything else are untouched.
+        return [];
+      } finally {
+        providerRequests.delete(region);
+      }
+    })();
+
+    providerRequests.set(region, request);
+    return request;
+  }
+
+  /** The directory as a lookup, for turning `availableOn` ids into logos. */
+  function provider(region: string | null, id: number): WatchProvider | null {
+    if (!region) return null;
+    return providersByRegion.value.get(region)?.find((entry) => entry.id === id) ?? null;
+  }
 
   return {
     config,
@@ -101,7 +158,12 @@ export const useConfigStore = defineStore('config', () => {
     posterUrl,
     backdropUrl,
     profileUrl,
+    logoUrl,
     attributionText,
-    attributionLogoUrl
+    attributionLogoUrl,
+    availabilityAttribution,
+    providersByRegion,
+    loadProviders,
+    provider
   };
 });

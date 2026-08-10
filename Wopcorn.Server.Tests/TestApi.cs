@@ -36,7 +36,8 @@ public record CardDto(
     SeasonProgressDto? SeasonProgress,
     int[] GenreIds,
     ListsDto Lists,
-    int? MyRating);
+    int? MyRating,
+    int[] AvailableOn);
 
 public record EntryDto(
     CardDto Title, DateTimeOffset AddedAt, int? Position, string? WatchedOn, int? Rating);
@@ -127,6 +128,20 @@ public record QueueOrderDto(string[] Keys);
 public record QueueOutOfSyncDto(string Code, string Message, string[] Keys);
 
 public record RatingStatsDto(int Count, double? Average, int[] Distribution);
+
+// API-CONTRACT.md "Streaming availability" (plan 09).
+
+public record WatchProviderDto(int Id, string Name, string? LogoPath);
+
+public record OfferGroupDto(string Kind, WatchProviderDto[] Providers);
+
+public record AvailabilityDto(
+    string Region, DateTimeOffset? FetchedAt, string? Link, OfferGroupDto[] Offers);
+
+public record ServicesDto(string Region, int[] ProviderIds);
+
+public record MeDto(
+    string Id, string DisplayName, string? AvatarUrl, string? Region, int[] ProviderIds);
 
 public static class TestApi
 {
@@ -367,6 +382,52 @@ public static class TestApi
 
         Assert.NotEqual(aId, bId);
     }
+
+    // --- streaming availability (09) ----------------------------------------
+
+    public static Task<HttpResponseMessage> GetAvailabilityAsync(
+        this HttpClient client, string key) =>
+        client.GetAsync($"/api/titles/{key}/availability");
+
+    public static async Task<AvailabilityDto> ReadAvailabilityAsync(
+        this HttpClient client, string key)
+    {
+        var response = await client.GetAvailabilityAsync(key);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return await response.ReadAsAsync<AvailabilityDto>();
+    }
+
+    public static Task<HttpResponseMessage> SetServicesAsync(
+        this HttpClient client, string region, params int[] providerIds) =>
+        client.PutAsJsonAsync("/api/me/services", new { region, providerIds });
+
+    /// <summary>Sets the viewer's region and services and asserts it took.</summary>
+    public static async Task SetAndAssertServicesAsync(
+        this HttpClient client, string region, params int[] providerIds)
+    {
+        var response = await client.SetServicesAsync(region, providerIds);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
+
+    public static async Task<WatchProviderDto[]> GetProvidersAsync(this HttpClient client)
+    {
+        var response = await client.GetAsync("/api/providers");
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return await response.ReadAsAsync<WatchProviderDto[]>();
+    }
+
+    public static async Task<MeDto> GetMeAsync(this HttpClient client)
+    {
+        var response = await client.GetAsync("/api/me");
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return await response.ReadAsAsync<MeDto>();
+    }
+
+    /// <summary>The provider ids one offer group carries, in the order they arrived.</summary>
+    public static int[] Kind(this AvailabilityDto availability, string kind) =>
+        availability.Offers
+            .FirstOrDefault(o => o.Kind == kind)?
+            .Providers.Select(p => p.Id).ToArray() ?? [];
 
     // --- direct database inspection -----------------------------------------
 

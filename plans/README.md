@@ -16,7 +16,8 @@ should execute it and is written at the altitude that model needs.
 | [`fe-05-shell.md`](fe-05-shell.md) | Design system, app shell, routing, auth screens, theming, PWA | Opus 5 | be-01 |
 | [`fe-06-catalog-lists.md`](fe-06-catalog-lists.md) | Search, film detail, list views, queue drag-reorder, star control | Opus 5 | fe-05, be-02, be-03 |
 | [`fe-07-social-pwa.md`](fe-07-social-pwa.md) | Friends UI, feed, profiles, taste match, mobile/a11y hardening | Opus 5 | fe-06, be-04 |
-| [`08-series.md`](08-series.md) | **Not built.** TV series and seasons: re-keys the catalog, both tracks | Opus 5 | all of the above |
+| [`08-series.md`](08-series.md) | TV series and seasons: re-keys the catalog, both tracks | Opus 5 | all of the above |
+| [`09-availability.md`](09-availability.md) | Streaming availability, region + services, the Queue's "on my services" filter | Opus 5 | 08 |
 
 ## Why the plans read the way they do
 
@@ -50,13 +51,35 @@ scroll smoothly. Both are called out as measure-then-decide steps.
 
 ```
 be-01 ──┬── be-02 ── be-03 ── be-04 ──┐
-        │                             ├── 08
+        │                             ├── 08 ── 09
         └── fe-05 ── fe-06 ── fe-07 ──┘
 ```
 
-`08` is the only plan written after the app was already running, and the only
-one that changes a shipped contract rather than adding to it. It waits on
-everything because it re-keys the table all seven of the others build on.
+`08` is the only plan that changes a shipped contract rather than adding to it.
+It waits on everything because it re-keys the table all seven of the others build
+on.
+
+`08` and `09` were both written after the app was already running. `09` is
+strictly additive — it changes no existing route or column — but it depends on
+`08` because a season's availability resolves through `ParentKey`, and it
+re-opens one line of `REQUIREMENTS.md` §5 (provider availability; prices and
+purchase links stay excluded).
+
+Three things were decided differently from `09` as written, each recorded in
+`API-CONTRACT.md`:
+
+- **`availableOn` is loaded inside `TitleMapper.LoadUserContextAsync`**, not
+  passed in by each action. The plan called for an audit of every call site; every
+  one of them already supplies the viewer's id and the page's keys, which is
+  exactly what availability needs, so folding it in leaves no call site to forget.
+- **The region and services live on a new `GET /api/me`**, because the plan's
+  "`GET /api/me` gains `region` and `providerIds`" had no route to gain them:
+  `/api/auth/me` returns `UserSummary`, which also describes friends.
+- **The Streaming filter is applied client-side against `availableOn`.** The
+  server-side `service=` parameter is implemented and tested as specified, but the
+  list views have always filtered locally, and the queue must keep its complete
+  stored order in hand for `PUT /api/queue/order`. The two produce the same rows
+  by construction — `availableOn` *is* the answer `service=` gives.
 
 `fe-05` can start as soon as `be-01` exposes `/api/auth/*`. Everything else on
 the frontend track waits for its backend counterpart. Backend plans are strictly

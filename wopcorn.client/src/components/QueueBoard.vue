@@ -12,12 +12,14 @@ import IconGrip from '@/components/icons/IconGrip.vue';
 import IconLayers from '@/components/icons/IconLayers.vue';
 import IconSort from '@/components/icons/IconSort.vue';
 import PosterImage from '@/components/PosterImage.vue';
+import ProviderBadges from '@/components/ProviderBadges.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import { formatShortDate, metaLine } from '@/lib/format';
 import { decadeGradient } from '@/lib/posters';
 import { isQuickViewClick } from '@/lib/quickView';
 import { titlePath } from '@/lib/titleKey';
 import { titleMetaShort } from '@/lib/titleMeta';
+import { useAuthStore } from '@/stores/auth';
 import { useConfigStore } from '@/stores/config';
 import { useListsStore } from '@/stores/lists';
 import { moveWithin, useQueueStore } from '@/stores/queue';
@@ -51,6 +53,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{ select: [key: string] }>();
 
+const auth = useAuthStore();
 const config = useConfigStore();
 const titles = useTitlesStore();
 const lists = useListsStore();
@@ -81,7 +84,56 @@ watch(
   { immediate: true }
 );
 
-const heroKey = computed<string | null>(() => queue.keys[0] ?? null);
+// ------------------------------------------------------- on my services (09)
+
+/**
+ * The question the queue could not answer until now: of the titles I have already
+ * put in order, which ones can I watch tonight?
+ *
+ * **Nothing here renders until services are configured** — no empty group, no
+ * disabled chip, no nag. Until then the queue looks exactly as it did.
+ *
+ * Filtering and reordering are mutually exclusive on purpose.
+ * `PUT /api/queue/order` takes the **complete** queue and rejects anything else
+ * (`queue_out_of_sync`), so a drag inside a filtered view could only ever submit
+ * a corrupted order. Rather than silently dropping the rows a filter hides, the
+ * board suspends dragging and the move buttons while the filter is on and says
+ * so. The filter is for reading the queue; reordering it is a separate act.
+ *
+ * Declared above the hero because the hero reads it — `heroKey` has an immediate
+ * watcher, so anything it touches has to exist by the time setup runs.
+ */
+const onMyServices = ref(false);
+
+const hasServices = computed(() => auth.hasServices);
+
+/** Whether this title is on any service the viewer has configured. */
+function matchesServices(key: string): boolean {
+  const title = titles.get(key);
+  return (title?.availableOn.length ?? 0) > 0;
+}
+
+const filtering = computed(() => onMyServices.value && hasServices.value);
+
+// A queue with no services configured must never be left in a filtered state.
+watch(hasServices, (has) => {
+  if (!has) onMyServices.value = false;
+});
+
+/**
+ * Position 1, or — while the streaming filter is on — the first title in the
+ * stored order the viewer can actually watch.
+ *
+ * "Up next" under that filter has to mean "up next among what you can watch". A
+ * hero nobody can play is the exact thing the filter exists to prevent, and it
+ * is the largest element on the screen. This is a **display** promotion only:
+ * nothing is written, and clearing the filter puts position 1 back.
+ */
+const heroKey = computed<string | null>(() =>
+  filtering.value
+    ? (queue.keys.find(matchesServices) ?? null)
+    : (queue.keys[0] ?? null)
+);
 const heroTitle = computed<TitleCard | null>(() =>
   heroKey.value === null ? null : titles.get(heroKey.value)
 );
@@ -121,6 +173,19 @@ const heroMeta = computed(() => {
   const added = formatShortDate(heroEntry.value?.addedAt);
   return metaLine([titleMetaShort(title), added ? `added ${added}` : null]);
 });
+
+/** Whether a row is drawn at all under the filter — the hero is drawn separately. */
+function showsRow(key: string): boolean {
+  return !filtering.value || (matchesServices(key) && key !== heroKey.value);
+}
+
+/** Counted across the whole queue, hero included, because the hero can be hidden too. */
+const filteredOut = computed(() =>
+  filtering.value ? queue.keys.filter((key) => !matchesServices(key)).length : 0
+);
+
+/** Nothing at all to watch: the filter is on and no title survived it. */
+const nothingWatchable = computed(() => filtering.value && heroKey.value === null);
 
 // --------------------------------------------------------------- reordering
 
@@ -205,6 +270,23 @@ async function applyPreset(): Promise<void> {
         <IconSort />
         <span>Sort</span>
       </button>
+
+      <!--
+        The payoff, one tap. Absent entirely until services are configured — a
+        control that can never do anything is worse than no control. It is the
+        signed-in user's own state, so it takes the accent.
+      -->
+      <button
+        v-if="hasServices"
+        type="button"
+        class="queue__sort"
+        :class="{ 'queue__sort--on': onMyServices }"
+        :aria-pressed="onMyServices"
+        :disabled="queue.keys.length === 0"
+        @click="onMyServices = !onMyServices"
+      >
+        <span>On my services</span>
+      </button>
     </div>
 
     <EmptyState
@@ -238,6 +320,23 @@ async function applyPreset(): Promise<void> {
         </span>
       </RouterLink>
 
+      <!--
+        Reordering is suspended while the filter is on: PUT /api/queue/order takes
+        the complete queue, so a drag inside a filtered view could only submit a
+        corrupted order. Hidden rows keep their place in the list — and their
+        numerals, which stay the real positions rather than being renumbered
+        against a subset.
+      -->
+      <p v-if="filtering" class="queue__filtered">
+        <span v-if="nothingWatchable">
+          Nothing in your queue is on your services.
+        </span>
+        <span v-else-if="filteredOut > 0">
+          Hiding {{ filteredOut }} not on your services. Reordering is off while filtered.
+        </span>
+        <span v-else>Everything in your queue is on your services.</span>
+      </p>
+
       <draggable
         v-model="rows"
         class="queue__rows"
@@ -248,11 +347,16 @@ async function applyPreset(): Promise<void> {
         :delay="0"
         :touch-start-threshold="5"
         :force-fallback="true"
+        :disabled="filtering"
         ghost-class="queue-ghost"
         @end="onDragEnd"
       >
         <template #item="{ element, index }">
-          <li class="queue-row" @click.capture="onCaptureClick($event, element)">
+          <li
+            v-show="showsRow(element)"
+            class="queue-row"
+            @click.capture="onCaptureClick($event, element)"
+          >
             <template v-if="titleOf(element)">
               <span class="queue-row__numeral" aria-hidden="true">{{ index + 2 }}</span>
 
@@ -271,11 +375,15 @@ async function applyPreset(): Promise<void> {
                     <TypeChip :media-type="titleOf(element)!.mediaType" />
                     {{ titleMetaShort(titleOf(element)!) }}
                   </span>
+                  <ProviderBadges
+                    class="queue-row__providers"
+                    :provider-ids="titleOf(element)!.availableOn"
+                  />
                 </span>
               </RouterLink>
 
               <!-- NFR-8: the keyboard path is mandatory, not a nicety. -->
-              <span class="queue-row__moves">
+              <span v-if="!filtering" class="queue-row__moves">
                 <button
                   type="button"
                   class="queue-row__move"
@@ -295,7 +403,7 @@ async function applyPreset(): Promise<void> {
                 </button>
               </span>
 
-              <span class="queue-row__grip drag-handle" aria-hidden="true">
+              <span v-if="!filtering" class="queue-row__grip drag-handle" aria-hidden="true">
                 <IconGrip />
               </span>
             </template>
@@ -374,6 +482,20 @@ async function applyPreset(): Promise<void> {
 .queue__sort :deep(svg) {
   width: 16px;
   height: 16px;
+}
+
+/* An active filter is the user's own state, so it earns the accent. */
+.queue__sort--on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.queue__filtered {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3);
 }
 
 /* ------------------------------------------------------------------ hero */
@@ -518,6 +640,10 @@ async function applyPreset(): Promise<void> {
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.queue-row__providers {
+  margin-top: 2px;
 }
 
 .queue-row__moves {

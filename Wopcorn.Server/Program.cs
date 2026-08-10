@@ -49,6 +49,14 @@ builder.Services.AddScoped<GenreCatalogService>();
 builder.Services.AddScoped<TitleCacheService>();
 builder.Services.AddScoped<TitleMapper>();
 
+// Streaming availability (09). The warmer is the app's only background service:
+// availability is fetched when a title is opened, and nobody opens the titles
+// already in their queue, so without it the Streaming filter matches almost
+// nothing. It is deliberately timid — one upstream request a second, a bounded
+// batch, and every pass wrapped in a catch.
+builder.Services.AddScoped<AvailabilityService>();
+builder.Services.AddHostedService<AvailabilityWarmer>();
+
 // Lists, queue and ratings (be-03). ActivityWriter shares the request's
 // DbContext, which is what makes an event and the mutation it reports atomic.
 builder.Services.AddScoped<ActivityWriter>();

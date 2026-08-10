@@ -13,6 +13,7 @@ import StarRating from '@/components/StarRating.vue';
 import TmdbAttribution from '@/components/TmdbAttribution.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
+import WhereToWatch from '@/components/WhereToWatch.vue';
 import { ApiError } from '@/api/client';
 import { episodeCount, formatScore } from '@/lib/format';
 import { titlePath } from '@/lib/titleKey';
@@ -188,6 +189,14 @@ function onClearSeasonRating(key: string): void {
             {{ refreshing ? 'Retrying…' : 'Try again' }}
           </button>
         </p>
+
+        <!--
+          High on the page, because "can I watch this tonight" is the question
+          the title screen is opened to answer at least as often as "what is it
+          about". A season shows its series' answer — TMDB has no season-level
+          providers, and where the show is carried is the honest reply.
+        -->
+        <WhereToWatch class="section" :title-key="detail.key" />
 
         <section v-if="detail.overview" class="section" aria-labelledby="title-synopsis">
           <h2 id="title-synopsis" class="section__title">Synopsis</h2>

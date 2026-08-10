@@ -9,9 +9,9 @@ all at the same grain: watched history, watchlist, an ordered queue, star
 ratings, and mutual-friend social features, with everything pulled from TMDB. See
 `REQUIREMENTS.md` for the full spec.
 
-**All eight plans in `plans/` are implemented.** The Visual Studio template
+**All nine plans in `plans/` are implemented.** The Visual Studio template
 scaffolding is gone. Server and client are feature-complete against
-`REQUIREMENTS.md`, with 246 server tests and 224 client tests passing.
+`REQUIREMENTS.md`, with 277 server tests and 256 client tests passing.
 
 Passkey sign-in, password reset, and the profile screen with its favourites
 showcase were added after the original seven plans and are not described by any
@@ -24,6 +24,7 @@ of them — `plans/API-CONTRACT.md` is their spec.
 | Auth (cookie), avatars, config | `Controllers/{Auth,Me,Config}Controller.cs` |
 | Passkeys, reset mail | `Wopcorn.Server/Auth/`, `Controllers/PasskeysController.cs`, `wopcorn.client/src/lib/webauthn.ts` |
 | TMDB client and the local catalog cache | `Wopcorn.Server/Tmdb/`, `Wopcorn.Server/Catalog/` |
+| Streaming availability, region and services | `Catalog/Availability{Service,Warmer}.cs`, `Controllers/AvailabilityController.cs`, `wopcorn.client/src/components/{WhereToWatch,ProviderBadges}.vue` |
 | Lists, queue ordering, ratings | `Wopcorn.Server/Lists/`, `Controllers/{Lists,Queue,Ratings}Controller.cs` |
 | Friends, feed, taste match | `Wopcorn.Server/Social/`, `Controllers/{Friends,Feed}Controller.cs` |
 | Profile payload, favourites showcase | `Wopcorn.Server/Social/ProfileService.cs`, `Lists/FavoritesService.cs`, `Controllers/ProfileController.cs`, `wopcorn.client/src/views/ProfileView.vue` |
@@ -67,6 +68,57 @@ array and is frequently empty (Breaking Bad returns `[]`), so most series have n
 derivable runtime. The `runtime` sort puts nulls last in *both* directions, and
 list totals sum only what is known — the Lists header deliberately understates
 rather than inventing episode lengths.
+
+### Streaming availability is region-scoped and per viewer
+
+TMDB exposes `/watch/providers` for **`movie` and `tv` only** — there is no season
+endpoint — so a season's availability resolves through `ParentKey`, the same way
+its genres do. `AvailabilityService` owns the three tables; nothing else writes
+them.
+
+Four rules the code depends on:
+
+- **Availability never fails a page.** A providers fetch that cannot reach TMDB
+  returns the stale stored rows, or `fetchedAt: null` when there are none — never
+  `503`. That is the opposite of `GET /api/titles/{key}`, which legitimately 503s.
+- **"Not fetched" and "fetched, nothing here" are different answers.** A
+  `TitleAvailability` row exists for every `(title, region)` we have *asked*
+  about; zero `TitleOffer` rows beside it means we looked and nobody carries it.
+  Without that distinction a title on no service in Belgium is re-fetched forever.
+- **One payload answers for the whole world.** TMDB returns every region whatever
+  you asked for, so every region is stored (~140 rows per title). Storing one is a
+  guaranteed second request the moment anyone sets a different region.
+- **`TitleAvailability.FetchedAt` carries `UtcInstantConverter`**, because the
+  warmer orders by it. See "Sorting by an instant".
+
+`AvailabilityWarmer` is the app's **only background service**: availability is
+fetched when a title is opened, and nobody opens the titles already in their
+queue. It sweeps titles on any user's Queue or Watchlist (never Watched) at one
+request a second, every 15 minutes. `WopcornApiFactory` removes it by default —
+like the blanked `Smtp:Host`, a test run must not have a background thread making
+its own calls through the fake client.
+
+`availableOn` on a card is **the viewer's own services, flatrate only**, and it is
+loaded inside `TitleMapper.LoadUserContextAsync` — so every list, search, feed and
+profile path gets it without a call site to forget, and a viewer with no services
+configured costs zero queries against the offer table.
+
+Two things about the Queue under **On my services**, both verified on screen:
+
+- **The hero is promoted, not filtered.** "Up next" has to mean "up next among
+  what you can watch", so with the filter on it becomes the first title in stored
+  order that survives it. Display only — nothing is written and clearing the
+  filter restores position 1. Row numerals stay the *real* stored positions
+  (a filtered queue can read 4, 5, 6), because renumbering against a subset would
+  make the queue's one piece of numbering lie.
+- **Reordering is suspended while filtered.** `PUT /api/queue/order` takes the
+  complete queue, so a drag in a filtered view could only submit a corrupted one;
+  the grips and move buttons are removed and the board says why.
+
+`QueueBoard.vue` declares its filter state **above** `heroKey`, which has an
+immediate watcher — a `const` referenced before its declaration throws only at
+runtime, and only once something evaluates it. `QueueBoard.spec.ts` mounts the
+board partly to guard that.
 
 Three things remain outstanding, all noted in `plans/` and in `README.md`:
 
@@ -163,6 +215,12 @@ factory exposes an opt-in `SqlLog` for asserting on generated SQL (the feed's
 no-`OFFSET` guarantee). `SocialWorld` and `ListWorld` are the shared fixtures;
 `ListWorld` carries two series on purpose, one with a known episode length and
 one whose `episode_run_time` is empty.
+
+`AvailabilityWorld` is the plan-09 fixture: a film carried by different services
+in two regions, a film TMDB has provider data for that nobody carries, and a
+series whose seasons resolve to it. `FakeTmdbClient.WithProviders` registers one
+region at a time; asking it for a **season's** providers throws, exactly as the
+real client does.
 
 `TestApi.Movie/Series/Season` spell title keys, and the film-id overloads on the
 list helpers exist so suites that predate series — and are about behaviour all
@@ -369,8 +427,14 @@ throws — a mail failure must not become a 500 that confirms an account exists.
 - `npm run lint` writes to files (`--fix` on both). Use `npx eslint .` for a
   read-only check.
 - **The accent colour means the signed-in user's own state** — their rating,
-  their list membership, their season progress, the active nav item. It is never
-  decorative. Position numerals appear only in the queue.
+  their list membership, their season progress, their chosen services and the
+  filters they have applied, the active nav item. It is never decorative.
+  Position numerals appear only in the queue.
+- **Provider logos are the one thing not drawn from `tokens.css`.** They are
+  third-party brand marks in their own colours, which is why they are small,
+  boxed with a neutral border, and never adjacent to the accent — a Netflix red
+  beside the gold is two competing signals. An empty `availableOn` renders
+  **nothing**: it cannot distinguish "unknown" from "on none of yours".
 - **The type chip labels series and seasons, never films.** The default needs no
   label, and a chip on every card is noise that hides the two that matter. It is
   neutral, not accent — what kind of thing something is is not user state.

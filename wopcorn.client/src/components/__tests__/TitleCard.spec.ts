@@ -3,6 +3,8 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
 import TitleCard from '@/components/TitleCard.vue';
+import { useAuthStore } from '@/stores/auth';
+import { useConfigStore } from '@/stores/config';
 import type { TitleCard as TitleCardData } from '@/api/types';
 
 /**
@@ -50,6 +52,7 @@ function film(overrides: Partial<TitleCardData> = {}): TitleCardData {
     genreIds: [],
     lists: { watched: false, watchlist: false, queue: false },
     myRating: null,
+    availableOn: [],
     ...overrides
   };
 }
@@ -173,6 +176,31 @@ describe('season progress', () => {
   it('never shows on a film or a season', () => {
     expect(mountCard(film()).find('.title-card__progress').exists()).toBe(false);
     expect(mountCard(season()).find('.title-card__progress').exists()).toBe(false);
+  });
+});
+
+describe('streaming badges', () => {
+  function withDirectory() {
+    useAuthStore().region = 'GB';
+    useConfigStore().providersByRegion = new Map([
+      ['GB', [{ id: 8, name: 'Netflix', logoPath: '/netflix.jpg' }]]
+    ]);
+  }
+
+  it('renders nothing for an empty availableOn', () => {
+    withDirectory();
+
+    // Empty means one of "no services set", "not fetched" and "on none of them",
+    // and the card cannot tell which — so it claims none of them.
+    expect(mountCard(film()).find('.providers').exists()).toBe(false);
+  });
+
+  it('renders the viewer\'s services when there are some', () => {
+    withDirectory();
+
+    const card = mountCard(film({ availableOn: [8] }));
+
+    expect(card.get('.providers').attributes('aria-label')).toBe('On Netflix');
   });
 });
 

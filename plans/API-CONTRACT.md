@@ -105,6 +105,7 @@ type TitleCard = {
   genreIds: number[];
   lists: ListMembership;            // for the authenticated user
   myRating: number | null;
+  availableOn: number[];            // TMDB provider ids — see below
 };
 
 // One row of a series' Seasons section. Carries the requester's own state so a
@@ -132,6 +133,22 @@ type TitleDetail = TitleCard & {
   friendsWatched: { user: UserSummary; rating: number | null }[];  // FR-G4
   stale: boolean;   // cached copy served while a refresh failed
 };
+
+// Streaming availability — `09`. One service TMDB (via JustWatch) knows about.
+type WatchProvider = {
+  id: number;              // TMDB provider_id
+  name: string;
+  logoPath: string | null; // bare TMDB path, like posters
+};
+
+type OfferKind = "flatrate" | "free" | "ads" | "rent" | "buy";
+
+type TitleAvailability = {
+  region: string;                  // ISO-3166-1 alpha-2, the viewer's
+  fetchedAt: string | null;        // null = never fetched; render as unknown
+  link: string | null;             // JustWatch page for this title in this region
+  offers: { kind: OfferKind; providers: WatchProvider[] }[];  // flatrate, free, ads, rent, buy
+};
 ```
 
 **`seasonProgress` is on the card, not just the detail.** It is non-null only on
@@ -149,6 +166,16 @@ last in both directions, and a list's runtime total sums only known runtimes, so
 the Lists header reads `"92 titles · 214h 51m"` — a count of titles beside the
 sum of what is known. It will understate.
 
+**`availableOn` is the viewer's own services, and flatrate only.** It lists the
+provider ids **the authenticated viewer has configured** that carry this title on
+subscription in their region — never the full offer list, and never a friend's
+services. It is `[]` when the viewer has configured no services, when availability
+has not been fetched yet, and when the title is on none of them: three states the
+card renders identically, so it does not distinguish them. Rent and buy are
+excluded on purpose — "I can watch this now" and "I can pay £3.49 to watch this
+now" are different claims and one badge cannot make both. Like `seasonProgress`,
+it costs one extra grouped query per page and never one per title.
+
 **A season's genres are its series' genres.** TMDB season objects carry none.
 
 **Nothing cascades between a series and its seasons.** Marking season 2 watched
@@ -161,9 +188,15 @@ independent of each other. `seasonProgress` is what the UI renders instead, so
 
 | Verb | Route | Response |
 |---|---|---|
-| GET | `/api/config` | `{ imageBaseUrl: string, posterSizes: string[], backdropSizes: string[], profileSizes: string[], attribution: { text: string, logoUrl: string } }` |
+| GET | `/api/config` | `{ imageBaseUrl: string, posterSizes: string[], backdropSizes: string[], profileSizes: string[], logoSizes: string[], attribution: { text: string, logoUrl: string, availabilityText: string } }` |
 
-`attribution` satisfies FR-B9 and must be rendered by the client.
+`attribution.text` satisfies FR-B9 and must be rendered by the client.
+`attribution.availabilityText` is the JustWatch attribution the availability data
+comes with, and must be rendered wherever availability is. It is **text only** —
+there is no second logo file, because `wwwroot/tmdb-logo.svg` has been outstanding
+since FR-B9 and one unshipped trademarked asset is enough.
+
+`logoSizes` are the TMDB image sizes valid for a `WatchProvider.logoPath`.
 
 ## Auth — `be-01`
 
@@ -173,12 +206,24 @@ independent of each other. `seasonProgress` is what the UI renders instead, so
 | POST | `/api/auth/login` *(anon)* | `{ email, password }` | `200 UserSummary` · `401` |
 | POST | `/api/auth/logout` | — | `204` |
 | GET | `/api/auth/me` *(anon)* | — | `200 UserSummary` · `401` |
+| GET | `/api/me` | — | `200 Me` |
 | PUT | `/api/me` | `{ displayName }` | `200 UserSummary` · `409` |
 | PUT | `/api/me/avatar` | `multipart/form-data`, field `file` | `200 { avatarUrl }` · `400` |
 | DELETE | `/api/me/avatar` | — | `204` |
 
 Login issues a **persistent** cookie (FR-A4). `GET /api/auth/me` is anonymous so
 the client can boot without a 401 in the console.
+
+`GET /api/me` is the signed-in user's **own** view of themself, which
+`UserSummary` deliberately is not — `UserSummary` also describes friends, and a
+friend's region and subscriptions are their business:
+
+```ts
+type Me = UserSummary & {
+  region: string | null;    // ISO-3166-1 alpha-2; null until set (09)
+  providerIds: number[];    // the services they subscribe to
+};
+```
 
 ### Password reset
 
@@ -274,11 +319,40 @@ seasons, from the `seasons[]` array TMDB already returns — so opening a series
 costs one upstream request, not one per season. Season *details* are fetched only
 when a season is opened.
 
+### Streaming availability — `09`
+
+| Verb | Route | Body / Query | Response |
+|---|---|---|---|
+| GET | `/api/titles/{key}/availability` | — | `200 TitleAvailability` · `400` · `404` |
+| GET | `/api/providers` | — | `200 WatchProvider[]` — the directory for the viewer's region |
+| PUT | `/api/me/services` | `{ region: string, providerIds: number[] }` | `200 { region, providerIds }` · `400 validation_failed` |
+
+Availability is **region-scoped and per viewer**. Both GETs read the region from
+the authenticated user and never from a query parameter, so an unauthenticated
+caller has no region and gets no availability. A viewer who has not set a region
+yet gets `400 validation_failed` with `errors.region`, which is what lets the
+client route them to settings rather than render a dead block.
+
+**Availability never fails a page.** A providers fetch that cannot reach TMDB
+returns the stale stored rows, or `fetchedAt: null` when there are none — never
+`503`. That is the opposite of `GET /api/titles/{key}`, which legitimately 503s.
+
+`GET /api/titles/{key}/availability` **on a season returns its series'**
+availability: TMDB exposes providers for `movie` and `tv` only, and this app's
+grain goes one level deeper. The response describes where the show can be watched
+and echoes the season's own key nowhere.
+
+`PUT /api/me/services` **replaces the whole set**, like `PUT /api/queue/order` and
+`PUT /api/me/favorites`, so add, remove and reorder are one write. `region` must
+be two letters and must appear in the directory TMDB publishes; an unknown
+provider id is `400 validation_failed` rather than silently dropped, because a
+silently dropped service is a filter that lies.
+
 ## Lists — `be-03`
 
 | Verb | Route | Body / Query | Response |
 |---|---|---|---|
-| GET | `/api/lists/{list}` | `sort`, `dir`, `genre` (repeatable), `decade` (repeatable), `type` (repeatable) | `200 { count, entries: ListEntry[] }` |
+| GET | `/api/lists/{list}` | `sort`, `dir`, `genre` (repeatable), `decade` (repeatable), `type` (repeatable), `service` (repeatable) | `200 { count, entries: ListEntry[] }` |
 | PUT | `/api/lists/{list}/{key}` | `{ alsoRemoveFrom?: ("watchlist"\|"queue")[], watchedOn?: string }` | `200 ListEntry` — idempotent |
 | DELETE | `/api/lists/{list}/{key}` | — | `204` — idempotent |
 
@@ -302,10 +376,13 @@ already on my watchlist" render in one pass (be-04 task 3).
 (`rating` only valid on `watched`). `dir` ∈ `asc` | `desc`, default `desc` for
 `added`/`score`/`rating`, `asc` otherwise. `decade` values are the decade start
 year (`1990`). `type` ∈ `movie` | `series` | `season`, repeatable, defaulting to
+all. `service` values are TMDB provider ids, repeatable, and narrow the list to
+titles carrying a **flatrate** offer from one of them in the viewer's region — the
+same claim `TitleCard.availableOn` makes. `service` with no ids is no filter at
 all. Unknown sort/filter values are ignored, not rejected.
 
-`count` is the **unfiltered** total for the list, `type` included — so the header
-can say "showing 12 of 84" from the one request.
+`count` is the **unfiltered** total for the list, `type` and `service` included —
+so the header can say "showing 12 of 84" from the one request.
 
 `alsoRemoveFrom` implements FR-C6 in one round trip.
 
