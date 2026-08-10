@@ -11,7 +11,7 @@ ratings, and mutual-friend social features, with everything pulled from TMDB. Se
 
 **All eight plans in `plans/` are implemented.** The Visual Studio template
 scaffolding is gone. Server and client are feature-complete against
-`REQUIREMENTS.md`, with 246 server tests and 216 client tests passing.
+`REQUIREMENTS.md`, with 246 server tests and 224 client tests passing.
 
 Passkey sign-in, password reset, and the profile screen with its favourites
 showcase were added after the original seven plans and are not described by any
@@ -29,6 +29,7 @@ of them — `plans/API-CONTRACT.md` is their spec.
 | Profile payload, favourites showcase | `Wopcorn.Server/Social/ProfileService.cs`, `Lists/FavoritesService.cs`, `Controllers/ProfileController.cs`, `wopcorn.client/src/views/ProfileView.vue` |
 | Design tokens and shell | `wopcorn.client/src/assets/tokens.css`, `src/components/AppShell.vue` |
 | API client and wire types | `wopcorn.client/src/api/` |
+| Hosting script and operator's manual | `deploy/Host-Wopcorn.ps1`, `deploy/HOSTING.md` |
 
 **`plans/API-CONTRACT.md` is the source of truth for every route, field, and
 status code.** Neither side may change one without editing that file first.
@@ -67,7 +68,7 @@ derivable runtime. The `runtime` sort puts nulls last in *both* directions, and
 list totals sum only what is known — the Lists header deliberately understates
 rather than inventing episode lengths.
 
-Two things remain outstanding, both noted in `plans/`:
+Three things remain outstanding, all noted in `plans/` and in `README.md`:
 
 - `Wopcorn.Server/wwwroot/tmdb-logo.svg` does not exist. It is a trademarked
   asset that has to be dropped in by hand; `TmdbAttribution.vue` renders the
@@ -79,7 +80,17 @@ Two things remain outstanding, both noted in `plans/`:
   is tested, but registering and signing in with a real passkey needs a real
   browser and authenticator, which no test here can stand in for.
 
-This directory is **not a git repository**.
+### Version control
+
+This **is** a git repository, pushed to `origin`
+(`github.com/GTonicHeals/Wopcorn`). **The default branch is `master`, not
+`main`** — target it for branches and PRs.
+
+`.gitignore` covers build output (`bin/`, `obj/`, `dist/`), `node_modules/`,
+`.vs/`, the local database (`wopcorn.db*`, which also catches the
+`.bak-before-*` copies beside it), and `deploy/wopcorn.host.json` — the one
+deploy file that holds secrets in plain text. Nothing else in `deploy/` is
+secret.
 
 ## Commands
 
@@ -244,6 +255,33 @@ files from the server, and any unmatched path returns `index.html` for
 client-side routing. There is no Vite proxy in production — client and API are
 same-origin, which is what makes cookie authentication straightforward.
 
+### The deployed host
+
+`deploy/Host-Wopcorn.ps1` publishes, migrates, starts and fronts the app on a
+Windows machine; `deploy/HOSTING.md` is the operator's manual. Kestrel binds
+`127.0.0.1` only and `tailscale serve` terminates HTTPS with a real certificate
+for the tailnet name — nothing is exposed to the internet.
+
+Three consequences that change how server code must be written:
+
+- **Production configuration arrives as environment variables, never as user
+  secrets.** .NET user secrets load only in Development, so a production host
+  cannot read them. `deploy/wopcorn.host.json` holds the values and the script
+  projects them onto the process as `Tmdb__ReadAccessToken`, `Smtp__Password`
+  and friends. Anything new that needs configuring has to work through that
+  path too.
+- **`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` is load-bearing.** Tailscale
+  terminates TLS and forwards plain HTTP to Kestrel; without it the app builds
+  `http://` origins, which breaks password-reset links and fails **every**
+  WebAuthn ceremony. Verified both ways on this codebase.
+- **Nothing migrates the database at startup, in production either.** `deploy`
+  runs `dotnet ef database update`; `start` does not. A missing migration
+  surfaces as `no such table` at query time.
+
+Avatars live outside the published folder (`app\wwwroot\avatars` is a junction
+to `C:\ProgramData\Wopcorn\avatars`), because every deploy overwrites `app\`.
+Writing user uploads anywhere under the web root would lose them.
+
 ### Sorting by an instant
 
 SQLite's EF provider throws `NotSupportedException` on `ORDER BY` over a
@@ -306,7 +344,9 @@ manual fallback, which is the path the unit tests exercise (jsdom has neither).
 
 ### Password reset mail
 
-`Smtp:*` in user secrets, alongside the TMDB keys. `Smtp:Host` is the switch:
+`Smtp:*` in user secrets, alongside the TMDB keys — in production the same
+values arrive as `Smtp__*` environment variables instead. `Smtp:Host` is the
+switch:
 set, mail goes out over SMTP; empty, `PasswordResetMailer` logs the link at
 Information instead, so the flow works on a laptop with no mail server.
 `Smtp:AppBaseUrl` sets the origin the link points at, which matters in

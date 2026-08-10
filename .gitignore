@@ -11,3 +11,11 @@ node_modules/
 
 # Local SQLite database (wopcorn.db, -wal, -shm)
 wopcorn.db*
+
+# Host settings: TMDB token and SMTP password in plain text
+deploy/wopcorn.host.json
+
+# curl cookie jars: these hold a live wopcorn.auth session cookie
+c.txt
+cookies.txt
+*.cookies
