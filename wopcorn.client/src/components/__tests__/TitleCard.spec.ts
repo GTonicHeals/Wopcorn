@@ -53,6 +53,7 @@ function film(overrides: Partial<TitleCardData> = {}): TitleCardData {
     lists: { watched: false, watchlist: false, queue: false },
     myRating: null,
     availableOn: [],
+    suggestion: null,
     ...overrides
   };
 }

@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 import { ApiError, api, jsonBody } from '@/api/client';
 import { useFriendsStore } from '@/stores/friends';
 import { useQueueStore } from '@/stores/queue';
+import { useSuggestionsStore } from '@/stores/suggestions';
 import { useTitlesStore } from '@/stores/titles';
 import { useToastStore } from '@/stores/toasts';
 import type {
@@ -38,6 +39,8 @@ export type StoredEntry = {
   addedAt: string;
   position: number | null;
   watchedOn: string | null;
+  /** The owner's note. Watched only, and null everywhere else. */
+  comment: string | null;
 };
 
 export type ListState = {
@@ -72,13 +75,15 @@ function toStored(entry: ListEntry): StoredEntry {
     key: entry.title.key,
     addedAt: entry.addedAt,
     position: entry.position,
-    watchedOn: entry.watchedOn
+    watchedOn: entry.watchedOn,
+    comment: entry.comment
   };
 }
 
 type Snapshot = {
   membership: ListMembership | null;
   myRating: number | null;
+  myComment: string | null;
   entries: Record<ListName, StoredEntry[]>;
   queueKeys: string[];
 };
@@ -87,6 +92,7 @@ export const useListsStore = defineStore('lists', () => {
   const titles = useTitlesStore();
   const friends = useFriendsStore();
   const queue = useQueueStore();
+  const suggestions = useSuggestionsStore();
   const toasts = useToastStore();
 
   const state = reactive<Record<ListName, ListState>>({
@@ -172,6 +178,9 @@ export const useListsStore = defineStore('lists', () => {
     return {
       membership: title ? { ...title.lists } : null,
       myRating: title?.myRating ?? null,
+      // `myComment` lives on the detail, so a card in the map simply has none to
+      // restore — which is right, because only the detail ever renders it.
+      myComment: title && 'myComment' in title ? title.myComment : null,
       entries: {
         watched: [...state.watched.entries],
         watchlist: [...state.watchlist.entries],
@@ -207,7 +216,8 @@ export const useListsStore = defineStore('lists', () => {
       key,
       addedAt: new Date().toISOString(),
       position: null,
-      watchedOn: null
+      watchedOn: null,
+      comment: null
     };
 
     // Newest-first is the default view, so a new row belongs at the top there.
@@ -335,6 +345,54 @@ export const useListsStore = defineStore('lists', () => {
     }
   }
 
+  /**
+   * `PUT /api/titles/{key}/comment`. A note is a rating with words: writing one
+   * marks the title watched, so the Watched toggle fills in the same frame.
+   */
+  async function setComment(key: string, comment: string): Promise<boolean> {
+    const snap = snapshot(key);
+
+    titles.patch(key, { myComment: comment });
+    setMembership(key, 'watched', true);
+    insertPlaceholder('watched', key);
+
+    try {
+      const entry = await api<ListEntry>(`/api/titles/${key}/comment`, {
+        method: 'PUT',
+        body: jsonBody({ comment })
+      });
+
+      ingest('watched', entry);
+      // `ingest` upserts the card, which does not carry `myComment` — that field
+      // is on the detail — so the server's trimmed text is written back here.
+      titles.patch(key, { myComment: entry.comment });
+      return true;
+    } catch (error) {
+      restore(key, snap);
+      titles.patch(key, { myComment: snap.myComment });
+      report(error, 'That note did not go through.');
+      return false;
+    }
+  }
+
+  /** The mirror of `clearRating`: the note goes, the Watched entry stays. */
+  async function clearComment(key: string): Promise<boolean> {
+    const snap = snapshot(key);
+    titles.patch(key, { myComment: null });
+
+    try {
+      await api<void>(`/api/titles/${key}/comment`, { method: 'DELETE' });
+      const entry = state.watched.entries.find((row) => row.key === key);
+      if (entry) entry.comment = null;
+      return true;
+    } catch (error) {
+      restore(key, snap);
+      titles.patch(key, { myComment: snap.myComment });
+      report(error, 'That did not go through.');
+      return false;
+    }
+  }
+
   /** FR-E4: clears the rating and keeps the Watched entry. */
   async function clearRating(key: string): Promise<boolean> {
     const snap = snapshot(key);
@@ -382,6 +440,9 @@ export const useListsStore = defineStore('lists', () => {
     // Friends, pending requests and taste matches are per-session too — leaving
     // them would light the next user's badge with the previous user's requests.
     friends.clear();
+    // Same reasoning, same badge problem: incoming suggestions are addressed to
+    // the person who just signed out.
+    suggestions.clear();
   }
 
   return {
@@ -397,6 +458,8 @@ export const useListsStore = defineStore('lists', () => {
     toggle,
     setRating,
     clearRating,
+    setComment,
+    clearComment,
     loadRatingStats,
     clear
   };

@@ -224,14 +224,16 @@ public sealed class FriendshipService(WopcornDbContext db)
             .Where(e => friendIds.Contains(e.UserId)
                         && e.TitleKey == titleKey
                         && e.Kind == ListKind.Watched)
-            .Select(e => new { e.User, e.Rating })
+            .Select(e => new { e.User, e.Rating, e.Comment })
             .ToListAsync(ct);
 
         return rows
             .OrderByDescending(r => r.Rating.HasValue)
             .ThenByDescending(r => r.Rating)
             .ThenBy(r => r.User.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Select(r => new FriendWatchedDto(r.User.ToSummary(), r.Rating))
+            // Their note rides along with their rating (plan 10). It is already on
+            // the row this query reads, so friends' comments cost nothing extra.
+            .Select(r => new FriendWatchedDto(r.User.ToSummary(), r.Rating, r.Comment))
             .ToArray();
     }
 

@@ -59,6 +59,7 @@ Validation failures use `400` with an additional `errors` map keyed by field.
 | `invalid_reset_token` | 400 | Password reset link is wrong, already used, or expired |
 | `passkey_failed` | 400 | Passkey attestation/assertion rejected by the server |
 | `already_friends` / `request_pending` | 409 | Friend request conflicts |
+| `suggestion_pending` | 409 | You already have a live suggestion of this title to this person |
 | `queue_out_of_sync` | 409 | Submitted queue order doesn't match stored membership; response carries the authoritative `keys` |
 | `tmdb_unavailable` | 503 | Upstream down and no cached copy (FR-B8) |
 
@@ -106,6 +107,20 @@ type TitleCard = {
   lists: ListMembership;            // for the authenticated user
   myRating: number | null;
   availableOn: number[];            // TMDB provider ids — see below
+  suggestion: SuggestionBadge | null;  // a friend's live suggestion — see below
+};
+
+type SuggestionTarget = "watchlist" | "queue";
+
+// The "recommended by X" badge. Present only while a suggestion is
+// unacknowledged; null the moment it is accepted or dismissed.
+type SuggestionBadge = {
+  id: string;
+  from: UserSummary;
+  comment: string | null;      // renders as the speech bubble
+  fromRating: number | null;   // the suggester's own rating, if they have one
+  target: SuggestionTarget;
+  state: "pending" | "added";  // "added" means it is already on the list
 };
 
 // One row of a series' Seasons section. Carries the requester's own state so a
@@ -130,8 +145,29 @@ type TitleDetail = TitleCard & {
   creators: string[];               // series; empty for films
   cast: { name: string; character: string | null; profilePath: string | null }[]; // max 12
   seasons: SeasonSummary[];         // series only; empty otherwise
-  friendsWatched: { user: UserSummary; rating: number | null }[];  // FR-G4
+  friendsWatched: {
+    user: UserSummary;
+    rating: number | null;
+    comment: string | null;         // their note on watching it
+  }[];                              // FR-G4
+  suggestedBy: SuggestionNote[];    // every friend who suggested this to you
+  myComment: string | null;         // your own note, null unless it is watched
   stale: boolean;   // cached copy served while a refresh failed
+};
+
+// A suggestion as the title screen shows it. Unlike SuggestionBadge this
+// survives acceptance: the badge is a call to action and goes away when
+// answered, but who recommended a title and what they said about it is a
+// permanent part of what the title screen has to say.
+type SuggestionNote = {
+  id: string;
+  from: UserSummary;
+  comment: string | null;
+  fromRating: number | null;
+  target: SuggestionTarget;
+  position: number | null;          // queue suggestions only, 0-based
+  state: "pending" | "added" | "accepted";
+  sentAt: string;
 };
 
 // Streaming availability — `09`. One service TMDB (via JustWatch) knows about.
@@ -175,6 +211,15 @@ card renders identically, so it does not distinguish them. Rent and buy are
 excluded on purpose — "I can watch this now" and "I can pay £3.49 to watch this
 now" are different claims and one badge cannot make both. Like `seasonProgress`,
 it costs one extra grouped query per page and never one per title.
+
+**`suggestion` is the badge, and it means "unanswered".** It is non-null only
+while a friend's suggestion of this title to the viewer is `pending` or `added` —
+answering it, either way, clears it. That is what makes "recommended by X —
+accept / remove" disappear on accept while the title stays on the list. The
+lasting record lives on `TitleDetail.suggestedBy`, which keeps accepted ones.
+When two friends have suggested the same title the card carries the **newest**;
+a card has room for one attribution line and `suggestedBy` has all of them. Like
+`availableOn` it is loaded once per page, never once per title.
 
 **A season's genres are its series' genres.** TMDB season objects carry none.
 
@@ -220,10 +265,19 @@ friend's region and subscriptions are their business:
 
 ```ts
 type Me = UserSummary & {
-  region: string | null;    // ISO-3166-1 alpha-2; null until set (09)
-  providerIds: number[];    // the services they subscribe to
+  region: string | null;      // ISO-3166-1 alpha-2; null until set (09)
+  providerIds: number[];      // the services they subscribe to
+  autoAddSuggestions: boolean;  // default false — see "Suggestions"
 };
 ```
+
+| Verb | Route | Body | Response |
+|---|---|---|---|
+| PUT | `/api/me/preferences` | `{ autoAddSuggestions: boolean }` | `200 { autoAddSuggestions }` |
+
+`autoAddSuggestions` is on `Me` and not on `UserSummary` for the same reason
+`region` is: it is the owner's own setting, and whether a friend auto-accepts
+your suggestions is not something you get to see.
 
 ### Password reset
 
@@ -362,7 +416,8 @@ type ListEntry = {
   addedAt: string;
   position: number | null;
   watchedOn: string | null;
-  rating: number | null;   // the list owner's rating
+  rating: number | null;    // the list owner's rating
+  comment: string | null;   // the list owner's note; watched only
 };
 ```
 
@@ -371,6 +426,11 @@ repeats `title.myRating`; on `GET /api/friends/{userId}/lists/{list}` it is the
 **friend's** rating, while `title.lists` and `title.myRating` still describe the
 authenticated user. That split is what lets "my friend gave this 9, and it's
 already on my watchlist" render in one pass (be-04 task 3).
+
+`comment` follows `rating` exactly, and for the same reason: it is the note of
+whoever owns the list, so a friend's watched list renders their notes while the
+rest of the card stays yours. It is null on the watchlist and the queue — a note
+is something you write about having seen a thing.
 
 `sort` ∈ `added` | `title` | `year` | `runtime` | `score` | `rating`
 (`rating` only valid on `watched`). `dir` ∈ `asc` | `desc`, default `desc` for
@@ -401,16 +461,35 @@ queue_out_of_sync` with the current order in `keys`.
 The queue mixes media types in one order — a film, a series and a season sit in
 the same list and reorder against each other.
 
-## Ratings — `be-03`
+## Ratings and comments — `be-03`, `10`
 
 | Verb | Route | Body | Response |
 |---|---|---|---|
 | PUT | `/api/titles/{key}/rating` | `{ rating: 1..10 }` | `200 ListEntry` — implicitly adds to Watched (FR-E3) |
 | DELETE | `/api/titles/{key}/rating` | — | `204` — clears rating, keeps the Watched entry |
+| PUT | `/api/titles/{key}/comment` | `{ comment: string }` | `200 ListEntry` — implicitly adds to Watched |
+| DELETE | `/api/titles/{key}/comment` | — | `204` — clears the note, keeps the Watched entry |
 | GET | `/api/me/rating-stats` | — | `200 RatingStats` |
 
 Ratings are integers 1–10 for every media type (FR-E2) — a series and a season
 are rated exactly as a film is.
+
+A **comment** is one note per watched title, owned by the person who wrote it.
+It is deliberately the same shape as a rating and behaves the same way at every
+edge, so there is one rule to learn rather than two:
+
+- Writing one **implicitly adds the title to Watched**, exactly as rating it
+  does (FR-E3). You cannot have a note about something you have not seen.
+- Clearing it keeps the Watched entry, exactly as `DELETE .../rating` does.
+- Removing the title from Watched discards the note with the row, exactly as it
+  discards the rating — the note lived on that row.
+- A comment is at most **2000 characters** and is trimmed. An empty or
+  whitespace-only body is `400 validation_failed`; use `DELETE` to clear.
+
+Comments are visible to friends and to nobody else. They appear on
+`ListEntry.comment` of the owner's watched list, on `TitleDetail.friendsWatched`
+next to the friend's rating, and — for the viewer's own — on
+`TitleDetail.myComment`. Nothing about a comment is written to the activity feed.
 
 ```ts
 type RatingStats = { count: number; average: number | null; distribution: number[] }; // length 10, index 0 = 1 half-star
@@ -460,6 +539,98 @@ friendship existed.
 
 Every `/api/friends/{userId}/…` read re-verifies the accepted friendship on that
 request (NFR-4).
+
+## Suggestions — `10`
+
+One friend recommending a title to another, at the same grain as everything else
+here: a film, a series, or one season. A suggestion names the list it is *for* —
+watchlist or queue — and a queue suggestion may also name a position.
+
+| Verb | Route | Body | Response |
+|---|---|---|---|
+| GET | `/api/suggestions` | — | `200 { incoming: Suggestion[], outgoing: Suggestion[] }` |
+| POST | `/api/suggestions` | `{ toUserId, key, target, position?, comment? }` | `201 Suggestion` · `400` · `403` · `404` · `409 suggestion_pending` |
+| POST | `/api/suggestions/{id}/accept` | — | `200 Suggestion` · `403` · `404` |
+| POST | `/api/suggestions/{id}/dismiss` | — | `204` · `403` · `404` |
+| DELETE | `/api/suggestions/{id}` | — | `204` · `403` · `404` — the **sender** withdraws |
+
+```ts
+type SuggestionState = "pending" | "added" | "accepted";
+
+type Suggestion = {
+  id: string;
+  from: UserSummary;        // who recommended it
+  to: UserSummary;          // who it was recommended to
+  title: TitleCard;
+  target: SuggestionTarget;
+  position: number | null;  // queue only, 0-based, the suggester's intent
+  comment: string | null;
+  fromRating: number | null;
+  state: SuggestionState;
+  sentAt: string;
+};
+```
+
+`accept` / `dismiss` are the **recipient's** verbs and `DELETE` is the
+**sender's**, each `403` to the other party — the same split as friend requests,
+for the same reason: the two sides of a suggestion must never be able to act on
+each other's behalf. Sending requires an accepted friendship, checked on the
+request like every other friend-scoped write (NFR-4); suggesting to yourself is
+`400 validation_failed`.
+
+`comment` is at most **500 characters**, trimmed, and null when omitted or blank.
+It is shorter than a watched note on purpose: a note is what you thought of
+something you saw, a suggestion comment is the reason you are asking.
+
+### The three states, and what auto-add does
+
+`autoAddSuggestions` (`PUT /api/me/preferences`) decides which state a new
+suggestion is born in. It is the **recipient's** setting and the sender cannot
+see or influence it.
+
+| State | The list entry | What the recipient sees |
+|---|---|---|
+| `pending` | does not exist | an inbox card with **Add** / **Dismiss** |
+| `added` | exists, created by the suggestion | the row, badged **recommended by X — accept / remove** |
+| `accepted` | exists, and is theirs | an ordinary row; no badge |
+
+- Off (the default), a suggestion arrives `pending` and **nothing is written to
+  any list** until the recipient says so.
+- On, the title is added to `target` immediately and the suggestion is `added`.
+- Accepting moves either state to `accepted`, adding the entry if it is not there
+  yet. `TitleCard.suggestion` becomes null; `suggestedBy` keeps the record.
+- Dismissing removes the entry **if the suggestion created it** and deletes the
+  suggestion. Like declining a friend request it leaves no trace, so it does not
+  appear in the sender's `outgoing` either, and the sender may suggest again.
+
+**Auto-add creates; it never adopts.** If the title is already on the target list
+the suggestion arrives `pending` regardless of the setting, because `added` is a
+claim about a row the suggestion put there — and "remove" on a badge attached to
+an entry the recipient added themselves would delete their own work. Accepting
+such a suggestion is an idempotent add and leaves the existing entry untouched,
+`addedAt` included.
+
+`POST /api/suggestions` is `409 suggestion_pending` when the sender already has a
+`pending` or `added` suggestion of that title to that person. An `accepted` or
+dismissed one does not block: re-suggesting after either replaces the row rather
+than adding a second, so one person can never accumulate suggestions of one title
+to one friend.
+
+### Where a queue suggestion lands
+
+`position` is 0-based and interpreted at the moment the entry is created —
+whether that is auto-add or acceptance. It is **clamped** to the queue's current
+length, and everything from that position down shifts one place, which is exactly
+the rewrite `PUT /api/queue/order` performs. An omitted `position`, or any
+`position` on a watchlist suggestion, appends (FR-D1) and is stored as null.
+
+Once inserted the entry is an ordinary queue entry: the recipient may drag it
+anywhere and nothing re-asserts the suggested position. A friend gets to make the
+case, not to hold a slot.
+
+`incoming` carries `pending` and `added` — the ones awaiting an answer.
+`outgoing` carries `pending`, `added` and `accepted`, so the sender can see what
+became of what they sent, and never dismissed ones.
 
 ## Profile and favourites
 

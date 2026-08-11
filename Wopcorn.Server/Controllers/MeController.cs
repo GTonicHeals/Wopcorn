@@ -32,6 +32,9 @@ public class MeController(
     /// <summary>Body of <c>PUT /api/me/services</c> — the complete set, like the queue order.</summary>
     public record ServicesRequest(string? Region, int[]? ProviderIds);
 
+    /// <summary>Body of <c>PUT /api/me/preferences</c> (plan 10).</summary>
+    public record PreferencesRequest(bool? AutoAddSuggestions);
+
     /// <summary>
     /// The signed-in user's own view of themself, which <c>UserSummary</c>
     /// deliberately is not: that shape also describes friends, and a friend's
@@ -50,7 +53,30 @@ public class MeController(
         var summary = user.ToSummary();
 
         return Ok(new MeDto(
-            summary.Id, summary.DisplayName, summary.AvatarUrl, region, providerIds));
+            summary.Id, summary.DisplayName, summary.AvatarUrl, region, providerIds,
+            user.AutoAddSuggestions));
+    }
+
+    /// <summary>
+    /// Plan 10. Separate from <see cref="SetServices"/> because the two answer
+    /// different questions and fail differently: a region can be rejected, a boolean
+    /// cannot.
+    /// </summary>
+    [HttpPut("preferences")]
+    public async Task<IActionResult> SetPreferences(PreferencesRequest request)
+    {
+        var user = await userManager.FindByIdAsync(CurrentUserId.ToString());
+        if (user is null)
+        {
+            return Problem(404, "not_found", "That user no longer exists.");
+        }
+
+        // Absent means false rather than "leave it": the body is the complete set of
+        // preferences, like every other replace-the-whole-thing write in this API.
+        user.AutoAddSuggestions = request.AutoAddSuggestions ?? false;
+        await userManager.UpdateAsync(user);
+
+        return Ok(new PreferencesDto(user.AutoAddSuggestions));
     }
 
     /// <summary>

@@ -71,6 +71,10 @@ builder.Services.AddScoped<FriendshipService>();
 builder.Services.AddScoped<TasteMatchService>();
 builder.Services.AddScoped<ProfileService>();
 
+// Suggestions (10). Scoped alongside ListService, whose transactions it borrows:
+// auto-adding a suggested title has to be one write with the row that claims it.
+builder.Services.AddScoped<SuggestionService>();
+
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
     .AddIdentityCookies();
 

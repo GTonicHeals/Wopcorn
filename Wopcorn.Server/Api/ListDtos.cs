@@ -15,12 +15,19 @@ namespace Wopcorn.Server.Api;
 /// <c>GET /api/friends/{userId}/lists/{list}</c> it is the <b>friend's</b> rating,
 /// while <c>title.myRating</c> and <c>title.lists</c> stay yours (be-04 task 3).
 /// </summary>
+/// <param name="Comment">
+/// The owner's note (plan 10), and it follows <paramref name="Rating"/> exactly:
+/// on a friend's list it is the <b>friend's</b> note while the card stays yours.
+/// Null off the watched list — a note is something you write about having seen a
+/// thing.
+/// </param>
 public record ListEntryDto(
     TitleCard Title,
     DateTimeOffset AddedAt,
     int? Position,
     string? WatchedOn,
-    int? Rating);
+    int? Rating,
+    string? Comment);
 
 /// <summary>
 /// The <c>GET /api/lists/{list}</c> body. <c>Count</c> is the <b>unfiltered</b>

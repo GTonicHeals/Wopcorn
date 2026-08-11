@@ -109,6 +109,19 @@ public sealed class ListService(
     }
 
     /// <summary>
+    /// <see cref="RemoveAsync"/> for a caller that already holds a transaction —
+    /// SQLite refuses a nested one outright, so this is not an optimisation.
+    ///
+    /// It exists for <c>SuggestionService.DismissAsync</c>, where dropping the
+    /// entry and deleting the suggestion that created it have to be one write:
+    /// either half alone leaves a badge pointing at nothing, or a title nobody
+    /// asked for.
+    /// </summary>
+    public Task RemoveWithinTransactionAsync(
+        Guid userId, TitleKey key, ListKind kind, CancellationToken ct) =>
+        RemoveCoreAsync(userId, key, kind, ct);
+
+    /// <summary>
     /// FR-E3: rating a title is watching it. Creates the Watched entry when it is
     /// missing, then stores the rating. Both the implied <c>Watched</c> event and
     /// the <c>Rated</c> event land in the same transaction as the row.
@@ -147,6 +160,60 @@ public sealed class ListService(
     }
 
     /// <summary>
+    /// Plan 10, and deliberately <see cref="SetRatingAsync"/> with a string: writing
+    /// a note about a title is watching it, so the Watched entry is created when it
+    /// is missing exactly as rating one does (FR-E3).
+    ///
+    /// The note is not activity. A rating is a judgement the feed and the taste
+    /// match both read; a note is prose addressed to whoever opens the title, and
+    /// putting it in the feed would make every second thought an announcement.
+    /// </summary>
+    public async Task<ListEntryDto> SetCommentAsync(
+        Guid userId, TitleKey key, string comment, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var entry = await FindAsync(userId, key, ListKind.Watched, ct);
+
+        if (entry is null)
+        {
+            entry = new ListEntry
+            {
+                UserId = userId,
+                TitleKey = key.Value,
+                Kind = ListKind.Watched,
+                AddedAt = DateTimeOffset.UtcNow,
+            };
+
+            db.ListEntries.Add(entry);
+            await activity.RecordAsync(userId, key, ActivityKind.Watched, null, ct);
+        }
+
+        entry.Comment = comment;
+
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        return await ProjectAsync(entry, userId, ct);
+    }
+
+    /// <summary>
+    /// The mirror of <see cref="ClearRatingAsync"/>: the Watched entry survives, and
+    /// clearing a note that is not there is a no-op.
+    /// </summary>
+    public async Task ClearCommentAsync(Guid userId, TitleKey key, CancellationToken ct)
+    {
+        var entry = await FindAsync(userId, key, ListKind.Watched, ct);
+        if (entry is null)
+        {
+            return;
+        }
+
+        entry.Comment = null;
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
     /// FR-E4: clearing a rating keeps the Watched entry. Clearing an absent rating
     /// is a no-op.
     /// </summary>
@@ -166,6 +233,76 @@ public sealed class ListService(
         await tx.CommitAsync(ct);
 
         tasteMatch.Invalidate(userId);
+    }
+
+    /// <summary>Whether the title is already on that list of theirs (plan 10).</summary>
+    public Task<bool> ContainsAsync(Guid userId, TitleKey key, ListKind kind, CancellationToken ct)
+    {
+        var value = key.Value;
+        return db.ListEntries.AnyAsync(
+            e => e.UserId == userId && e.TitleKey == value && e.Kind == kind, ct);
+    }
+
+    /// <summary>
+    /// Adds a title on a friend's behalf (plan 10), optionally at a chosen place in
+    /// the queue. Returns <c>true</c> only when a row was actually created.
+    ///
+    /// That return value is the whole point. Auto-add <b>creates; it never adopts</b>
+    /// — a suggestion may only claim the badge on an entry it put there, because
+    /// "remove" on a badge attached to an entry the recipient added themselves would
+    /// delete their own work. So an entry that already exists is left completely
+    /// alone, <see cref="ListEntry.AddedAt"/> included, and the caller is told.
+    /// </summary>
+    /// <param name="queuePosition">
+    /// 0-based and clamped to the queue's current length; everything from there down
+    /// shifts one place, which is the same rewrite <c>PUT /api/queue/order</c>
+    /// performs. Null appends (FR-D1), and it is ignored entirely off the queue.
+    /// </param>
+    public async Task<bool> AddAtAsync(
+        Guid userId, TitleKey key, ListKind kind, int? queuePosition, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        if (await FindAsync(userId, key, kind, ct) is not null)
+        {
+            return false;
+        }
+
+        int? position = null;
+
+        if (kind == ListKind.Queue)
+        {
+            // Positions are contiguous from 0 by invariant (CompactQueueAsync), so
+            // the loaded index and the stored position are the same number.
+            var queue = await ByStoredPosition(db.ListEntries.Where(QueueOf(userId)))
+                .ToListAsync(ct);
+
+            var index = Math.Clamp(queuePosition ?? queue.Count, 0, queue.Count);
+            for (var i = index; i < queue.Count; i++)
+            {
+                queue[i].Position = i + 1;
+            }
+
+            position = index;
+        }
+
+        db.ListEntries.Add(new ListEntry
+        {
+            UserId = userId,
+            TitleKey = key.Value,
+            Kind = kind,
+            AddedAt = DateTimeOffset.UtcNow,
+            Position = position,
+        });
+
+        // The recipient really did add this to their list, so it is their activity —
+        // an auto-added title appears in their friends' feeds like any other.
+        await activity.RecordAsync(userId, key, ActivityWriter.KindFor(kind), null, ct);
+
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        return true;
     }
 
     /// <summary>
@@ -377,7 +514,8 @@ public sealed class ListService(
             entry.AddedAt,
             entry.Position,
             entry.WatchedOn?.ToString("yyyy-MM-dd"),
-            entry.Rating);
+            entry.Rating,
+            entry.Comment);
 
     // --- ordering and filtering (task 2) ------------------------------------
 

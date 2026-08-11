@@ -13,6 +13,7 @@ import type {
   Me,
   PasskeyOptionsResponse,
   PasskeySummary,
+  PreferencesRequest,
   RegisterRequest,
   ResetPasswordRequest,
   ServicesRequest,
@@ -38,6 +39,16 @@ export const useAuthStore = defineStore('auth', () => {
    */
   const region = ref<string | null>(null);
   const providerIds = ref<number[]>([]);
+
+  /**
+   * Whether a friend's suggestion goes straight onto the list it names (plan 10).
+   *
+   * Loaded beside the services because it comes from the same `GET /api/me`, and
+   * off until proven on: it is the setting that decides whether other people may
+   * write to your queue, so the pessimistic default is the honest one to assume
+   * while the answer is in flight.
+   */
+  const autoAddSuggestions = ref(false);
 
   const isAuthenticated = computed(() => user.value !== null);
 
@@ -83,10 +94,22 @@ export const useAuthStore = defineStore('auth', () => {
       const me = await api<Me>('/api/me');
       region.value = me.region;
       providerIds.value = me.providerIds;
+      autoAddSuggestions.value = me.autoAddSuggestions;
     } catch {
       region.value = null;
       providerIds.value = [];
+      autoAddSuggestions.value = false;
     }
+  }
+
+  /** `PUT /api/me/preferences`. Throws on failure — the toggle reverts itself. */
+  async function setAutoAddSuggestions(value: boolean): Promise<void> {
+    const saved = await api<PreferencesRequest>('/api/me/preferences', {
+      method: 'PUT',
+      body: jsonBody({ autoAddSuggestions: value })
+    });
+
+    autoAddSuggestions.value = saved.autoAddSuggestions;
   }
 
   /**
@@ -253,6 +276,7 @@ export const useAuthStore = defineStore('auth', () => {
     status.value = 'ready';
     region.value = null;
     providerIds.value = [];
+    autoAddSuggestions.value = false;
   }
 
   return {
@@ -260,11 +284,13 @@ export const useAuthStore = defineStore('auth', () => {
     status,
     region,
     providerIds,
+    autoAddSuggestions,
     isAuthenticated,
     hasServices,
     boot,
     loadServices,
     setServices,
+    setAutoAddSuggestions,
     register,
     login,
     passkeyLogin,

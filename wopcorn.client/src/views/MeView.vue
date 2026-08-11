@@ -215,6 +215,45 @@ async function saveServices(): Promise<void> {
   }
 }
 
+// ------------------------------------------------------- friends' suggestions
+
+const savingAutoAdd = ref(false);
+const autoAddError = ref('');
+
+/**
+ * One line, describing what is true *now* rather than listing both states at
+ * once. "Add them for me" already says what switching it on does, so the note
+ * below the switch is free to answer the question the setting actually raises:
+ * what happens to a suggestion that arrives while it is like this.
+ */
+const autoAddNote = computed(() =>
+  auth.autoAddSuggestions
+    ? 'A suggested title goes straight to the list your friend picked. It stays marked ' +
+      '“recommended by” until you accept it, and one tap removes it.'
+    : 'Suggestions wait on your Friends screen and nothing touches your lists.'
+);
+
+/**
+ * Reads the checkbox rather than negating the store, so a failed save that
+ * leaves the store untouched cannot flip the meaning of the next tap. The
+ * checkbox is bound to the store, so Vue restores it on the next render.
+ */
+async function onAutoAddChange(event: Event): Promise<void> {
+  const wanted = (event.target as HTMLInputElement).checked;
+  if (savingAutoAdd.value) return;
+
+  savingAutoAdd.value = true;
+  autoAddError.value = '';
+
+  try {
+    await auth.setAutoAddSuggestions(wanted);
+  } catch (error) {
+    autoAddError.value = error instanceof ApiError ? error.message : 'That did not go through.';
+  } finally {
+    savingAutoAdd.value = false;
+  }
+}
+
 // -------------------------------------------------------------------- theme
 
 const themeLabels: Record<ThemePreference, string> = {
@@ -493,6 +532,39 @@ async function signOut(): Promise<void> {
         </BaseButton>
       </section>
 
+      <section class="me__section" aria-labelledby="me-suggestions">
+        <h2 id="me-suggestions" class="me__legend">Friends' suggestions</h2>
+
+        <!--
+          A switch, not a checkbox: this is a mode the account is left in, not
+          an item being ticked off, and the note underneath changes with it.
+          The note is `aria-describedby` rather than part of the label so the
+          switch announces as "Add them for me, on" and the consequence follows
+          as description, instead of one 40-word name.
+        -->
+        <div class="autoadd" :class="{ 'autoadd--busy': savingAutoAdd }">
+          <label class="autoadd__row">
+            <span class="autoadd__title">Add them for me</span>
+            <input
+              class="autoadd__input"
+              type="checkbox"
+              role="switch"
+              :checked="auth.autoAddSuggestions"
+              :disabled="savingAutoAdd"
+              aria-describedby="me-autoadd-note"
+              @change="onAutoAddChange"
+            />
+            <span class="autoadd__track" aria-hidden="true">
+              <span class="autoadd__knob" />
+            </span>
+          </label>
+
+          <p id="me-autoadd-note" class="autoadd__note">{{ autoAddNote }}</p>
+        </div>
+
+        <p v-if="autoAddError" class="me__error" role="alert">{{ autoAddError }}</p>
+      </section>
+
       <section class="me__section" aria-labelledby="me-theme">
         <h2 id="me-theme" class="me__legend">Appearance</h2>
         <div class="me__segmented" role="radiogroup" aria-labelledby="me-theme">
@@ -713,6 +785,101 @@ async function signOut(): Promise<void> {
 
 .me__note {
   font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/*
+ * Auto-add is the viewer's own state, so the switch takes the accent when it is
+ * on — the same rule as the list toggles and the theme segment below. State is
+ * never signalled by colour alone (NFR-9): the knob slides, which survives both
+ * themes and every kind of colour vision.
+ *
+ * The card exists because the setting is one thought — the name, the control
+ * and what it does to an arriving suggestion. Left loose in the section they
+ * were three unrelated lines of small grey text, and the sentence about the
+ * off state read as a footnote to the section rather than to the switch.
+ */
+.autoadd {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* The save is one request; dimming is enough to say "not yet". */
+.autoadd--busy {
+  opacity: 0.6;
+}
+
+.autoadd__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  /* The whole row is the target, so the switch is never the small thing to hit. */
+  min-height: var(--tap-min);
+  font-size: var(--text-base);
+  cursor: pointer;
+}
+
+.autoadd__title {
+  font-weight: 600;
+}
+
+/* Hidden, not removed: it is still the checkbox that gets focus and keys. */
+.autoadd__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.autoadd__track {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.autoadd__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 140ms ease, background-color 140ms ease;
+}
+
+.autoadd__input:checked + .autoadd__track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.autoadd__input:checked + .autoadd__track .autoadd__knob {
+  background: var(--accent-ink);
+  transform: translateX(20px);
+}
+
+.autoadd__input:focus-visible + .autoadd__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.autoadd__note {
+  font-size: var(--text-xs);
+  line-height: 1.5;
   color: var(--text-muted);
 }
 

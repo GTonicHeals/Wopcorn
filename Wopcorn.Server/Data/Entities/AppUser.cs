@@ -17,4 +17,14 @@ public class AppUser : IdentityUser<Guid>
     /// is wrong the first time someone travels or the group spans a border.
     /// </summary>
     public string? Region { get; set; }
+
+    /// <summary>
+    /// Whether a friend's suggestion goes straight onto the list it names (plan 10).
+    ///
+    /// Off by default, because the alternative is that signing up hands every
+    /// friend write access to your queue. It is the <b>recipient's</b> setting and
+    /// the sender can neither see nor influence it, which is why it sits here and
+    /// not on <c>UserSummary</c>.
+    /// </summary>
+    public bool AutoAddSuggestions { get; set; }
 }

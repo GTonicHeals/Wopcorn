@@ -128,7 +128,12 @@ export const useTitlesStore = defineStore('titles', () => {
       myRating: season.myRating,
       // And so is where it can be watched — TMDB has no season-level providers,
       // so a season resolves to its series everywhere, including here.
-      availableOn: detail.availableOn
+      availableOn: detail.availableOn,
+      // A suggestion is *not* inherited: a friend recommends a season or the
+      // series, never both at once, and the series' badge on a season row would
+      // offer an accept that answers the wrong thing. The season's own screen
+      // fills this in.
+      suggestion: null
     }));
   }
 

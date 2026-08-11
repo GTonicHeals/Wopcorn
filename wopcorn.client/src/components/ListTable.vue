@@ -5,6 +5,7 @@ import IconStar from '@/components/icons/IconStar.vue';
 import ListToggles from '@/components/ListToggles.vue';
 import PosterImage from '@/components/PosterImage.vue';
 import StarDisplay from '@/components/StarDisplay.vue';
+import SuggestionBanner from '@/components/SuggestionBanner.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import { formatScore } from '@/lib/format';
 import { isQuickViewClick } from '@/lib/quickView';
@@ -118,6 +119,20 @@ function onCaptureClick(event: MouseEvent, key: string): void {
         <span class="row__toggles">
           <ListToggles :title="title" />
         </span>
+
+        <!--
+          Its own full-width line under the row. The five cells are a fixed
+          rhythm and none of them has room for a two-button strip; giving it a
+          band of its own also keeps it out of the link, so its buttons cannot
+          navigate.
+        -->
+        <SuggestionBanner
+          v-if="title.suggestion"
+          class="row__suggestion"
+          :badge="title.suggestion"
+          :title-key="title.key"
+          compact
+        />
       </li>
     </ul>
   </div>
@@ -148,11 +163,21 @@ function onCaptureClick(event: MouseEvent, key: string): void {
   grid-template-columns: 46px minmax(0, 1fr) auto;
   grid-template-areas:
     'poster main  toggles'
-    'poster stars toggles';
+    'poster stars toggles'
+    'suggestion suggestion suggestion';
   align-items: center;
   column-gap: var(--space-3);
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
+}
+
+/*
+ * A declared area with nothing in it collapses to nothing — there is no
+ * row-gap here — so rows without a suggestion are exactly as tall as before.
+ */
+.row__suggestion {
+  grid-area: suggestion;
+  margin-top: var(--space-2);
 }
 
 .row:last-child {
@@ -235,10 +260,16 @@ function onCaptureClick(event: MouseEvent, key: string): void {
     padding: 0 var(--space-6) var(--space-8);
   }
 
-  .table__head,
-  .row {
+  .table__head {
     grid-template-columns: 46px minmax(0, 1fr) 5rem 7.5rem 144px;
     grid-template-areas: 'poster main type stars toggles';
+  }
+
+  .row {
+    grid-template-columns: 46px minmax(0, 1fr) 5rem 7.5rem 144px;
+    grid-template-areas:
+      'poster main type stars toggles'
+      'suggestion suggestion suggestion suggestion suggestion';
   }
 
   .table__head {

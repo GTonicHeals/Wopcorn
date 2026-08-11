@@ -10,9 +10,13 @@ import PosterImage from '@/components/PosterImage.vue';
 import SpinnerBlock from '@/components/SpinnerBlock.vue';
 import StarDisplay from '@/components/StarDisplay.vue';
 import StarRating from '@/components/StarRating.vue';
+import SuggestBox from '@/components/SuggestBox.vue';
+import SuggestedBy from '@/components/SuggestedBy.vue';
+import SuggestionBanner from '@/components/SuggestionBanner.vue';
 import TmdbAttribution from '@/components/TmdbAttribution.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
+import WatchedNote from '@/components/WatchedNote.vue';
 import WhereToWatch from '@/components/WhereToWatch.vue';
 import { ApiError } from '@/api/client';
 import { episodeCount, formatScore } from '@/lib/format';
@@ -169,9 +173,27 @@ function onClearSeasonRating(key: string): void {
                 tone="neutral"
               />
               <span v-else class="friends__unrated">watched</span>
+              <!--
+                Their note, on its own line under the rating it belongs to. Full
+                text rather than a bubble: this is the screen the bubble on the
+                card was pointing at, so there is nowhere further to send anyone.
+              -->
+              <p v-if="entry.comment" class="friends__note">{{ entry.comment }}</p>
             </li>
           </ul>
         </section>
+
+        <!--
+          A friend's unanswered recommendation, in full here rather than the
+          compact card strip: this is the screen with room to say what it is for
+          and who it is from.
+        -->
+        <SuggestionBanner
+          v-if="detail.suggestion"
+          class="suggestion-row"
+          :badge="detail.suggestion"
+          :title-key="detail.key"
+        />
 
         <StarRating
           :model-value="detail.myRating"
@@ -181,6 +203,10 @@ function onClearSeasonRating(key: string): void {
         />
 
         <ListToggles :title="detail" show-labels />
+
+        <div class="title__share">
+          <SuggestBox :title-key="detail.key" :title-name="detail.title" />
+        </div>
 
         <!-- Not an error: a saved copy is being shown on purpose (FR-B8). -->
         <p v-if="detail.stale" class="stale">
@@ -259,6 +285,21 @@ function onClearSeasonRating(key: string): void {
           </h2>
           <p class="people">{{ detail.creators.join(', ') }}</p>
         </section>
+
+        <!--
+          The viewer's own note, and then the notes friends attached to their
+          suggestions. Both sit below the synopsis and the seasons: they are
+          about the title rather than part of it, and someone arriving to find
+          out what a film *is* should reach that first.
+        -->
+        <WatchedNote
+          v-if="detail.lists.watched"
+          :title-key="detail.key"
+          :title-name="detail.title"
+          :note="detail.myComment"
+        />
+
+        <SuggestedBy :notes="detail.suggestedBy" />
 
         <section v-if="detail.cast.length > 0" class="section" aria-labelledby="title-cast">
           <h2 id="title-cast" class="section__title">Cast</h2>
@@ -414,7 +455,23 @@ function onClearSeasonRating(key: string): void {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-wrap: wrap;
   font-size: var(--text-sm);
+}
+
+/*
+ * Full width on its own line, indented past the avatar so it reads as belonging
+ * to the name above it rather than to the row below.
+ */
+.friends__note {
+  flex-basis: 100%;
+  margin: 2px 0 var(--space-1) calc(26px + var(--space-2));
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
 }
 
 .friends__name {
@@ -428,6 +485,14 @@ function onClearSeasonRating(key: string): void {
 .friends__unrated {
   font-size: var(--text-xs);
   color: var(--text-muted);
+}
+
+.suggestion-row {
+  margin-top: var(--space-4);
+}
+
+.title__share {
+  margin-top: var(--space-3);
 }
 
 .stale {

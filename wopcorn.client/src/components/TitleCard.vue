@@ -7,6 +7,7 @@ import ListToggles from '@/components/ListToggles.vue';
 import PosterImage from '@/components/PosterImage.vue';
 import ProviderBadges from '@/components/ProviderBadges.vue';
 import StarDisplay from '@/components/StarDisplay.vue';
+import SuggestionBanner from '@/components/SuggestionBanner.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import { formatScore } from '@/lib/format';
 import { isQuickViewClick } from '@/lib/quickView';
@@ -126,6 +127,20 @@ function onCaptureClick(event: MouseEvent): void {
       <StarDisplay :value="theirRating" :size="12" :label="theirRatingLabel" tone="neutral" />
     </p>
 
+    <!--
+      A friend's unanswered recommendation. Above the toggles because it is a
+      question rather than a control, and outside the link so its buttons cannot
+      navigate. It renders only while the suggestion is unanswered, so a card
+      never carries it for long.
+    -->
+    <SuggestionBanner
+      v-if="title.suggestion"
+      class="title-card__suggestion"
+      :badge="title.suggestion"
+      :title-key="title.key"
+      compact
+    />
+
     <ListToggles :title="title" />
   </article>
 </template>
@@ -217,6 +232,10 @@ function onCaptureClick(event: MouseEvent): void {
   gap: var(--space-1);
   margin: -4px 0 var(--space-2);
   min-width: 0;
+}
+
+.title-card__suggestion {
+  margin-bottom: var(--space-1);
 }
 
 .title-card__theirs-name {

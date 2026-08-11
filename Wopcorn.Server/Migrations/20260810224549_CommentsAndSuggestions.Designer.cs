@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Wopcorn.Server.Data;
 
@@ -10,9 +11,11 @@ using Wopcorn.Server.Data;
 namespace Wopcorn.Server.Migrations
 {
     [DbContext(typeof(WopcornDbContext))]
-    partial class WopcornDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260810224549_CommentsAndSuggestions")]
+    partial class CommentsAndSuggestions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");

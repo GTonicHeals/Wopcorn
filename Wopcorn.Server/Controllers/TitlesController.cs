@@ -19,6 +19,7 @@ public class TitlesController(
     TitleCacheService titles,
     TitleMapper mapper,
     FriendshipService friendships,
+    SuggestionService suggestions,
     IMemoryCache cache) : ApiControllerBase
 {
     /// <summary>TMDB refuses pages beyond 500.</summary>
@@ -165,7 +166,13 @@ public class TitlesController(
             ? await mapper.LoadSeasonsAsync(CurrentUserId, parsed.Value, ct)
             : [];
 
-        return Ok(mapper.ToDetail(result.Title, context, result.Stale, friendsWatched, seasons));
+        // Plan 10: every friend who suggested this to the viewer, accepted ones
+        // included. The badge on the card is a call to action and clears when it is
+        // answered; this is the record, and it stays.
+        var suggestedBy = await suggestions.GetNotesAsync(CurrentUserId, parsed, ct);
+
+        return Ok(mapper.ToDetail(
+            result.Title, context, result.Stale, friendsWatched, seasons, suggestedBy));
     }
 
     /// <summary>

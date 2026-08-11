@@ -7,6 +7,7 @@ import IconStar from '@/components/icons/IconStar.vue';
 import ListToggles from '@/components/ListToggles.vue';
 import PosterImage from '@/components/PosterImage.vue';
 import StarRating from '@/components/StarRating.vue';
+import SuggestedBy from '@/components/SuggestedBy.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import { formatScore } from '@/lib/format';
 import { titlePath } from '@/lib/titleKey';
@@ -132,6 +133,16 @@ function close(): void {
       />
 
       <ListToggles :title="title" show-labels />
+
+      <!--
+        Above the synopsis on purpose: TMDB says what the thing is, a friend says
+        why it is in your list, and in a dialog opened *from* that list the
+        second question is the one being asked. It arrives with the same fetch
+        the synopsis needs, so reading the message costs no extra request — and
+        it keeps accepted suggestions, so answering the badge does not take the
+        note away with it.
+      -->
+      <SuggestedBy v-if="detail" :notes="detail.suggestedBy" compact />
 
       <p v-if="detail?.overview" class="quick__synopsis">{{ detail.overview }}</p>
       <p v-else-if="loading" class="quick__synopsis quick__synopsis--wait">Loading details…</p>

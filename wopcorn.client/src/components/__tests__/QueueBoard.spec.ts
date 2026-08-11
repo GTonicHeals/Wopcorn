@@ -51,7 +51,8 @@ function card(key: string, title: string, availableOn: number[] = []): TitleCard
     genreIds: [],
     lists: { watched: false, watchlist: false, queue: true },
     myRating: null,
-    availableOn
+    availableOn,
+    suggestion: null
   };
 }
 

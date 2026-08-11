@@ -15,6 +15,7 @@ public class WopcornDbContext(DbContextOptions<WopcornDbContext> options)
     public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<FriendRequest> FriendRequests => Set<FriendRequest>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
+    public DbSet<Suggestion> Suggestions => Set<Suggestion>();
     public DbSet<WatchProvider> WatchProviders => Set<WatchProvider>();
     public DbSet<TitleAvailability> TitleAvailability => Set<TitleAvailability>();
     public DbSet<TitleOffer> TitleOffers => Set<TitleOffer>();
@@ -91,6 +92,7 @@ public class WopcornDbContext(DbContextOptions<WopcornDbContext> options)
             // `sort=added` orders by this column, which SQLite cannot do on a
             // DateTimeOffset — see UtcInstantConverter.
             e.Property(l => l.AddedAt).HasConversion<UtcInstantConverter>();
+            e.Property(l => l.Comment).HasMaxLength(ListEntry.MaxCommentLength);
             e.HasIndex(l => new { l.UserId, l.TitleKey, l.Kind }).IsUnique();
             e.HasIndex(l => new { l.UserId, l.Kind });
             e.HasOne(l => l.User)
@@ -151,6 +153,44 @@ public class WopcornDbContext(DbContextOptions<WopcornDbContext> options)
                 .WithMany()
                 .HasForeignKey(f => f.ToUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Suggestion>(e =>
+        {
+            // The inbox and the sender's list are both newest-first, so SentAt is
+            // ordered on in SQL — see UtcInstantConverter.
+            e.Property(s => s.SentAt).HasConversion<UtcInstantConverter>();
+            e.Property(s => s.Comment).HasMaxLength(Suggestion.MaxCommentLength);
+
+            // At most one suggestion per (from, to, title), ever. Re-suggesting
+            // rewrites the row, so this index is what stops a friend accumulating a
+            // stack of the same recommendation.
+            e.HasIndex(s => new { s.FromUserId, s.ToUserId, s.TitleKey }).IsUnique();
+
+            // The inbox reads this direction: "what is waiting for me", newest first.
+            e.HasIndex(s => new { s.ToUserId, s.State, s.SentAt })
+                .IsDescending(false, false, true);
+
+            // TitleCard.suggestion is loaded for a whole page at once, by recipient
+            // and title key together.
+            e.HasIndex(s => new { s.ToUserId, s.TitleKey });
+
+            // Both FKs point at AppUser, so neither may cascade: SQLite and SQL
+            // Server both reject multiple cascade paths into one table. Same shape
+            // as Friendship and FriendRequest.
+            e.HasOne(s => s.FromUser)
+                .WithMany()
+                .HasForeignKey(s => s.FromUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(s => s.ToUser)
+                .WithMany()
+                .HasForeignKey(s => s.ToUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(s => s.Title)
+                .WithMany()
+                .HasForeignKey(s => s.TitleKey)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<ActivityEvent>(e =>

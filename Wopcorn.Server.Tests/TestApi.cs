@@ -37,10 +37,35 @@ public record CardDto(
     int[] GenreIds,
     ListsDto Lists,
     int? MyRating,
-    int[] AvailableOn);
+    int[] AvailableOn,
+    SuggestionBadgeDto? Suggestion);
 
 public record EntryDto(
-    CardDto Title, DateTimeOffset AddedAt, int? Position, string? WatchedOn, int? Rating);
+    CardDto Title, DateTimeOffset AddedAt, int? Position, string? WatchedOn, int? Rating,
+    string? Comment);
+
+// API-CONTRACT.md "Suggestions" (plan 10).
+
+public record SuggestionBadgeDto(
+    string Id, UserSummaryDto From, string? Comment, int? FromRating, string Target, string State);
+
+public record SuggestionNoteDto(
+    string Id, UserSummaryDto From, string? Comment, int? FromRating, string Target,
+    int? Position, string State, DateTimeOffset SentAt);
+
+public record SuggestionDto(
+    string Id,
+    UserSummaryDto From,
+    UserSummaryDto To,
+    CardDto Title,
+    string Target,
+    int? Position,
+    string? Comment,
+    int? FromRating,
+    string State,
+    DateTimeOffset SentAt);
+
+public record SuggestionsResponseDto(SuggestionDto[] Incoming, SuggestionDto[] Outgoing);
 
 public record ListPageDto(int Count, EntryDto[] Entries);
 
@@ -94,7 +119,7 @@ public record ActivityItemDto(
 
 public record FeedPageDto(ActivityItemDto[] Items, string? NextCursor);
 
-public record FriendWatchedDto(UserSummaryDto User, int? Rating);
+public record FriendWatchedDto(UserSummaryDto User, int? Rating, string? Comment);
 
 public record SeasonSummaryDto(
     string Key, int SeasonNumber, string Name, int? EpisodeCount, string? AirDate,
@@ -117,7 +142,10 @@ public record TitleDetailDto(
     SeasonSummaryDto[] Seasons,
     int? MyRating,
     FriendWatchedDto[] FriendsWatched,
-    bool Stale);
+    bool Stale,
+    SuggestionBadgeDto? Suggestion,
+    SuggestionNoteDto[] SuggestedBy,
+    string? MyComment);
 
 public record TitlePageDto(int Page, int TotalPages, int TotalResults, CardDto[] Results);
 
@@ -141,7 +169,8 @@ public record AvailabilityDto(
 public record ServicesDto(string Region, int[] ProviderIds);
 
 public record MeDto(
-    string Id, string DisplayName, string? AvatarUrl, string? Region, int[] ProviderIds);
+    string Id, string DisplayName, string? AvatarUrl, string? Region, int[] ProviderIds,
+    bool AutoAddSuggestions);
 
 public static class TestApi
 {
@@ -219,6 +248,75 @@ public static class TestApi
 
     public static Task<HttpResponseMessage> ClearRatingAsync(this HttpClient client, string key) =>
         client.DeleteAsync($"/api/titles/{key}/rating");
+
+    // --- comments and suggestions (10) --------------------------------------
+
+    public static Task<HttpResponseMessage> CommentAsync(
+        this HttpClient client, string key, string comment) =>
+        client.PutAsJsonAsync($"/api/titles/{key}/comment", new { comment });
+
+    public static Task<HttpResponseMessage> ClearCommentAsync(this HttpClient client, string key) =>
+        client.DeleteAsync($"/api/titles/{key}/comment");
+
+    /// <summary>Writes a note and asserts it took, returning the watched entry.</summary>
+    public static async Task<EntryDto> CommentAndReadAsync(
+        this HttpClient client, string key, string comment)
+    {
+        var response = await client.CommentAsync(key, comment);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return await response.ReadAsAsync<EntryDto>();
+    }
+
+    public static Task<HttpResponseMessage> SuggestAsync(
+        this HttpClient client,
+        Guid toUserId,
+        string key,
+        string target,
+        int? position = null,
+        string? comment = null) =>
+        client.PostAsJsonAsync(
+            "/api/suggestions", new { toUserId, key, target, position, comment });
+
+    /// <summary>Sends a suggestion and asserts it was created, returning it.</summary>
+    public static async Task<SuggestionDto> SuggestAndReadAsync(
+        this HttpClient client,
+        Guid toUserId,
+        string key,
+        string target,
+        int? position = null,
+        string? comment = null)
+    {
+        var response = await client.SuggestAsync(toUserId, key, target, position, comment);
+        Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
+        return await response.ReadAsAsync<SuggestionDto>();
+    }
+
+    public static Task<HttpResponseMessage> AcceptSuggestionAsync(
+        this HttpClient client, string id) =>
+        client.PostAsync($"/api/suggestions/{id}/accept", null);
+
+    public static Task<HttpResponseMessage> DismissSuggestionAsync(
+        this HttpClient client, string id) =>
+        client.PostAsync($"/api/suggestions/{id}/dismiss", null);
+
+    public static Task<HttpResponseMessage> WithdrawSuggestionAsync(
+        this HttpClient client, string id) =>
+        client.DeleteAsync($"/api/suggestions/{id}");
+
+    public static async Task<SuggestionsResponseDto> GetSuggestionsAsync(this HttpClient client)
+    {
+        var response = await client.GetAsync("/api/suggestions");
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        return await response.ReadAsAsync<SuggestionsResponseDto>();
+    }
+
+    /// <summary>Turns the recipient's auto-add on or off, and asserts it took.</summary>
+    public static async Task SetAutoAddAsync(this HttpClient client, bool autoAddSuggestions)
+    {
+        var response = await client.PutAsJsonAsync(
+            "/api/me/preferences", new { autoAddSuggestions });
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
 
     public static Task<HttpResponseMessage> ReorderQueueAsync(
         this HttpClient client, params string[] keys) =>

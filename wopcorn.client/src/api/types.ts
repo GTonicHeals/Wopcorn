@@ -22,6 +22,18 @@ export type UserSummary = {
 export type Me = UserSummary & {
   region: string | null; // ISO-3166-1 alpha-2; null until set
   providerIds: number[];
+  /**
+   * Whether a friend's suggestion goes straight onto the list it names. Off by
+   * default — the alternative is that signing up hands every future friend write
+   * access to your queue. It is the **recipient's** setting, which is why it is
+   * here and not on `UserSummary`.
+   */
+  autoAddSuggestions: boolean;
+};
+
+/** Body and response of `PUT /api/me/preferences`. */
+export type PreferencesRequest = {
+  autoAddSuggestions: boolean;
 };
 
 export type ListMembership = {
@@ -75,6 +87,84 @@ export type TitleCard = {
    * and "I can pay to watch this now" are different claims.
    */
   availableOn: number[];
+  /**
+   * A friend's **unanswered** suggestion of this title to the viewer, or null.
+   *
+   * Non-null means exactly one thing: there is still an accept/remove decision to
+   * make. Answering it either way clears it, which is what makes the
+   * "recommended by X" line disappear on acceptance while the title stays on the
+   * list. When two friends have suggested the same title this is the newest —
+   * `TitleDetail.suggestedBy` carries all of them.
+   */
+  suggestion: SuggestionBadge | null;
+};
+
+export type SuggestionTarget = 'watchlist' | 'queue';
+
+/**
+ * `pending`  — nothing has been written to any list; it waits in the inbox.
+ * `added`    — the suggestion put it on the list and may take it back off.
+ * `accepted` — it is the recipient's own now; no badge, no accept/remove.
+ */
+export type SuggestionState = 'pending' | 'added' | 'accepted';
+
+/** The "recommended by X" badge. Only ever `pending` or `added` — see above. */
+export type SuggestionBadge = {
+  id: string;
+  from: UserSummary;
+  /** Renders as the speech bubble on the card. */
+  comment: string | null;
+  fromRating: number | null;
+  target: SuggestionTarget;
+  state: Exclude<SuggestionState, 'accepted'>;
+};
+
+/**
+ * A suggestion as the title screen shows it, which unlike `SuggestionBadge`
+ * **survives acceptance**: the badge is a call to action and belongs only while
+ * there is an action to call for, but who recommended a title and what they said
+ * about it is permanent.
+ */
+export type SuggestionNote = {
+  id: string;
+  from: UserSummary;
+  comment: string | null;
+  fromRating: number | null;
+  target: SuggestionTarget;
+  position: number | null;
+  state: SuggestionState;
+  sentAt: string;
+};
+
+/** The whole row, from `GET /api/suggestions` and every write's response. */
+export type Suggestion = {
+  id: string;
+  from: UserSummary;
+  to: UserSummary;
+  title: TitleCard;
+  target: SuggestionTarget;
+  /** Queue suggestions only, 0-based. Honoured once, on insert, then it is yours. */
+  position: number | null;
+  comment: string | null;
+  fromRating: number | null;
+  state: SuggestionState;
+  sentAt: string;
+};
+
+export type SuggestionsResponse = {
+  /** Waiting on you: `pending` and `added`. */
+  incoming: Suggestion[];
+  /** What you sent, `accepted` included. Dismissed ones leave no trace. */
+  outgoing: Suggestion[];
+};
+
+/** Body of `POST /api/suggestions`. */
+export type SuggestionRequest = {
+  toUserId: string;
+  key: string;
+  target: SuggestionTarget;
+  position?: number | null;
+  comment?: string | null;
 };
 
 /** One row of a series' Seasons section, already decorated for the viewer. */
@@ -98,7 +188,12 @@ export type TitleDetail = TitleCard & {
   creators: string[]; // series; empty for films
   cast: { name: string; character: string | null; profilePath: string | null }[]; // max 12
   seasons: SeasonSummary[]; // series only; empty otherwise
-  friendsWatched: { user: UserSummary; rating: number | null }[]; // FR-G4
+  /** FR-G4. `comment` is their note on watching it — friends only. */
+  friendsWatched: { user: UserSummary; rating: number | null; comment: string | null }[];
+  /** Every friend who suggested this to you, accepted ones included. */
+  suggestedBy: SuggestionNote[];
+  /** Your own note. Null unless the title is on your watched list. */
+  myComment: string | null;
   stale: boolean; // cached copy served while a refresh failed
 };
 
@@ -222,6 +317,11 @@ export type ListEntry = {
    * it's already on my watchlist" render in one pass.
    */
   rating: number | null;
+  /**
+   * The note of whoever owns this list, following `rating` exactly. Null off the
+   * watched list — a note is something you write about having seen a thing.
+   */
+  comment: string | null;
 };
 
 export type ListResponse = {

@@ -28,6 +28,14 @@ public record ListMembership(bool Watched, bool Watchlist, bool Queue)
 /// none of them — three states the card renders identically. Like
 /// <paramref name="SeasonProgress"/> it costs one grouped query per page.
 /// </param>
+/// <param name="Suggestion">
+/// A friend's <b>unanswered</b> recommendation of this title to the viewer (plan
+/// 10), or null. Answering it either way clears it, which is what makes the
+/// accept/remove line disappear on acceptance while the title stays put. When two
+/// friends have suggested the same title this is the newest of them — a card has
+/// room for one attribution line, and <c>TitleDetail.SuggestedBy</c> has them
+/// all. Loaded once per page like everything else here.
+/// </param>
 public record TitleCard(
     string Key,
     string MediaType,
@@ -45,13 +53,19 @@ public record TitleCard(
     IReadOnlyList<int> GenreIds,
     ListMembership Lists,
     int? MyRating,
-    IReadOnlyList<int> AvailableOn);
+    IReadOnlyList<int> AvailableOn,
+    SuggestionBadge? Suggestion);
 
 public record GenreDto(int Id, string Name, IReadOnlyList<string> MediaTypes);
 
 public record CastMemberDto(string Name, string? Character, string? ProfilePath);
 
-public record FriendWatchedDto(UserSummary User, int? Rating);
+/// <param name="Comment">
+/// Their note on watching it (plan 10). Comments are visible to friends and to
+/// nobody else, and this is where a friend's lands: beside the rating it belongs
+/// to, on the screen for the title it is about.
+/// </param>
+public record FriendWatchedDto(UserSummary User, int? Rating, string? Comment);
 
 /// <summary>
 /// One row of a series' Seasons section. Carries the requester's own membership
@@ -102,10 +116,13 @@ public record TitleDetail(
     IReadOnlyList<SeasonSummaryDto> Seasons,
     IReadOnlyList<FriendWatchedDto> FriendsWatched,
     bool Stale,
-    IReadOnlyList<int> AvailableOn)
+    IReadOnlyList<int> AvailableOn,
+    SuggestionBadge? Suggestion,
+    IReadOnlyList<SuggestionNote> SuggestedBy,
+    string? MyComment)
     : TitleCard(Key, MediaType, TmdbId, SeasonNumber, ParentKey, Title, ReleaseYear, PosterPath,
         TmdbVoteAverage, RuntimeMinutes, EpisodeCount, SeasonCount, SeasonProgress, GenreIds,
-        Lists, MyRating, AvailableOn);
+        Lists, MyRating, AvailableOn, Suggestion);
 
 /// <summary>A page of <see cref="TitleCard"/>s — the search and discover response.</summary>
 public record TitlePage(int Page, int TotalPages, int TotalResults, IReadOnlyList<TitleCard> Results);
@@ -136,11 +153,24 @@ public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availab
     /// and it is loaded from the <b>viewer's</b> id on every path, including a
     /// friend's list, because a badge saying "you can watch this" must mean you.
     /// </param>
+    /// <param name="Suggestion">
+    /// The newest unanswered suggestion of this title <b>to the viewer</b> (plan
+    /// 10). It rides here for the same reason the rest does — one grouped query for
+    /// the page — and it is loaded from the viewer's id on every path, including a
+    /// friend's list, because "recommended by X" has to mean recommended to you.
+    /// </param>
+    /// <param name="Comment">
+    /// The viewer's own note, from their watched entry. Only the detail renders it,
+    /// but it is read from the same row as <paramref name="Rating"/> and would cost
+    /// a second query to fetch separately.
+    /// </param>
     public record UserContext(
         ListMembership Lists,
         int? Rating,
         int WatchedSeasons = 0,
-        IReadOnlyList<int>? AvailableOn = null)
+        IReadOnlyList<int>? AvailableOn = null,
+        SuggestionBadge? Suggestion = null,
+        string? Comment = null)
     {
         public static readonly UserContext None = new(ListMembership.None, null);
 
@@ -169,7 +199,7 @@ public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availab
         var rows = await db.ListEntries
             .AsNoTracking()
             .Where(e => e.UserId == userId && keys.Contains(e.TitleKey))
-            .Select(e => new { e.TitleKey, e.Kind, e.Rating })
+            .Select(e => new { e.TitleKey, e.Kind, e.Rating, e.Comment })
             .ToListAsync(ct);
 
         // One more for season progress across every series on the page — grouped in
@@ -196,6 +226,9 @@ public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availab
                         g.Any(r => r.Kind == ListKind.Queue)),
                     g.Where(r => r.Kind == ListKind.Watched)
                         .Select(r => r.Rating)
+                        .FirstOrDefault(),
+                    Comment: g.Where(r => r.Kind == ListKind.Watched)
+                        .Select(r => r.Comment)
                         .FirstOrDefault()),
                 StringComparer.Ordinal);
 
@@ -217,7 +250,68 @@ public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availab
                 : UserContext.None with { AvailableOn = providerIds };
         }
 
+        foreach (var (key, badge) in await LoadSuggestionBadgesAsync(userId, keys, ct))
+        {
+            // A suggested title the viewer has no entry for is the ordinary case —
+            // that is what a pending suggestion is — so it needs a row of its own here.
+            context[key] = context.TryGetValue(key, out var existing)
+                ? existing with { Suggestion = badge }
+                : UserContext.None with { Suggestion = badge };
+        }
+
         return context;
+    }
+
+    /// <summary>
+    /// The unanswered suggestions on this page, one per title (plan 10).
+    ///
+    /// One query for the page, like everything else in the decoration — including
+    /// the suggester's own rating, which is a correlated subquery rather than a
+    /// second round trip. Ordering happens in memory over a result set bounded by
+    /// the page: only <c>pending</c> and <c>added</c> rows come back, and a viewer
+    /// has at most one per friend per title.
+    /// </summary>
+    private async Task<Dictionary<string, SuggestionBadge>> LoadSuggestionBadgesAsync(
+        Guid userId, IReadOnlyCollection<string> keys, CancellationToken ct)
+    {
+        var rows = await db.Suggestions
+            .AsNoTracking()
+            .Where(s => s.ToUserId == userId
+                        && keys.Contains(s.TitleKey)
+                        && (s.State == SuggestionState.Pending || s.State == SuggestionState.Added))
+            .Select(s => new
+            {
+                s.Id,
+                s.TitleKey,
+                s.Comment,
+                s.Target,
+                s.State,
+                s.SentAt,
+                s.FromUser,
+                FromRating = db.ListEntries
+                    .Where(e => e.UserId == s.FromUserId
+                                && e.TitleKey == s.TitleKey
+                                && e.Kind == ListKind.Watched)
+                    .Select(e => e.Rating)
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(r => r.TitleKey, StringComparer.Ordinal)
+            // Newest wins: a card has one attribution line, and the detail screen
+            // carries every one of them through SuggestedBy.
+            .Select(g => g.OrderByDescending(r => r.SentAt).First())
+            .ToDictionary(
+                r => r.TitleKey,
+                r => new SuggestionBadge(
+                    r.Id.ToString(),
+                    r.FromUser.ToSummary(),
+                    r.Comment,
+                    r.FromRating,
+                    r.Target.ToWire(),
+                    r.State.ToWire()),
+                StringComparer.Ordinal);
     }
 
     public TitleCard ToCard(Title title, IReadOnlyDictionary<string, UserContext> context)
@@ -241,7 +335,8 @@ public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availab
             title.Genres.Select(g => g.GenreTmdbId).OrderBy(id => id).ToArray(),
             entry.Lists,
             entry.Rating,
-            entry.Services);
+            entry.Services,
+            entry.Suggestion);
     }
 
     /// <summary>
@@ -270,7 +365,11 @@ public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availab
         // social context (a write path confirming a title exists) stays valid.
         IReadOnlyList<FriendWatchedDto>? friendsWatched = null,
         // Series only; empty for films and seasons.
-        IReadOnlyList<SeasonSummaryDto>? seasons = null)
+        IReadOnlyList<SeasonSummaryDto>? seasons = null,
+        // Plan 10, supplied by SuggestionService. Defaulted for the same reason
+        // friendsWatched is: a write path confirming a title exists has no social
+        // context to give and must stay a valid caller.
+        IReadOnlyList<SuggestionNote>? suggestedBy = null)
     {
         var entry = Context(title.Key, context);
 
@@ -308,7 +407,10 @@ public sealed class TitleMapper(WopcornDbContext db, AvailabilityService availab
             seasons ?? [],
             friendsWatched ?? [],
             stale,
-            entry.Services);
+            entry.Services,
+            entry.Suggestion,
+            suggestedBy ?? [],
+            entry.Comment);
     }
 
     /// <summary>

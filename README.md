@@ -47,6 +47,20 @@ how many shared ratings it was computed from.
 
 ![A profile — favourites showcase, rating spread, genre affinities and on-record totals](docs/screenshot-profile.jpg)
 
+**Notes and suggestions.** Write a note on anything you have watched; your
+friends see it beside your rating. Suggest a title to a friend for their
+watchlist or their queue, say roughly how soon you think they should get to it,
+and attach a line about why — which shows as a speech bubble on the
+recommendation and reads in full without leaving the list, since tapping a title
+opens a quick view carrying the note and what the sender made of it themselves.
+Suggestions wait in an inbox by default, or land straight on the list you named
+if the recipient has turned that on; either way the title stays marked
+*recommended by* wherever it appears — grids, list rows and the queue alike —
+until it is accepted, and one tap clears the mark. A friend can put a title in
+front of you. Only you can take one away.
+
+![A queue marked "recommended by", with a friend's reason readable in the quick view](docs/screenshot-suggestions.jpg)
+
 **Accounts.** Email + password over ASP.NET Core Identity, passkeys (WebAuthn)
 as an additional sign-in method, password reset by email, avatars and display
 names.

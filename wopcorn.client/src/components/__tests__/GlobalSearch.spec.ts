@@ -66,7 +66,8 @@ function film(tmdbId: number, title: string): TitleCard {
     genreIds: [],
     lists: { watched: false, watchlist: false, queue: false },
     myRating: null,
-    availableOn: []
+    availableOn: [],
+    suggestion: null
   };
 }
 

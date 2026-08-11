@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Wopcorn.Server.Api;
 using Wopcorn.Server.Catalog;
+using Wopcorn.Server.Data.Entities;
 using Wopcorn.Server.Lists;
 
 namespace Wopcorn.Server.Controllers;
@@ -20,6 +21,8 @@ public class RatingsController(
     private const string RatingRangeMessage = "Rating must be between 1 and 10 half-stars.";
 
     public record RatingRequest(int? Rating);
+
+    public record CommentRequest(string? Comment);
 
     [HttpPut("titles/{key}/rating")]
     public async Task<IActionResult> Set(
@@ -57,6 +60,62 @@ public class RatingsController(
         await lists.ClearRatingAsync(CurrentUserId, parsed, ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// Plan 10. A note lives here rather than in a controller of its own because it
+    /// is a rating with words: same row, same implicit add to Watched, same
+    /// survival rules when it is cleared. Two controllers would be two places to
+    /// keep those rules in step.
+    /// </summary>
+    [HttpPut("titles/{key}/comment")]
+    public async Task<IActionResult> SetComment(
+        string key, CommentRequest request, CancellationToken ct = default)
+    {
+        if (!SuggestionsController.TryNormalizeComment(
+                request.Comment, ListEntry.MaxCommentLength, out var comment))
+        {
+            return CommentError($"A note is at most {ListEntry.MaxCommentLength} characters.");
+        }
+
+        // Blank is a bad request rather than a silent clear: DELETE is how you take
+        // a note back, and a PUT that quietly deleted would be a surprising way to
+        // lose one to a stray keystroke.
+        if (comment is null)
+        {
+            return CommentError("Write something, or delete the note instead.");
+        }
+
+        if (!TryParseKey(key, out var parsed, out var malformed))
+        {
+            return malformed!;
+        }
+
+        if (await EnsureTitleAsync(titles, parsed, ct) is { } failure)
+        {
+            return failure;
+        }
+
+        // Implicitly adds to Watched, exactly as rating does (FR-E3).
+        return Ok(await lists.SetCommentAsync(CurrentUserId, parsed, comment, ct));
+    }
+
+    [HttpDelete("titles/{key}/comment")]
+    public async Task<IActionResult> ClearComment(string key, CancellationToken ct = default)
+    {
+        if (!TryParseKey(key, out var parsed, out var malformed))
+        {
+            return malformed!;
+        }
+
+        // The watched entry survives, like DELETE .../rating. Clearing an absent
+        // note is still 204.
+        await lists.ClearCommentAsync(CurrentUserId, parsed, ct);
+        return NoContent();
+    }
+
+    private IActionResult CommentError(string message) =>
+        BadRequest(new ApiError("validation_failed", message,
+            new Dictionary<string, string[]> { ["comment"] = [message] }));
 
     [HttpGet("me/rating-stats")]
     public async Task<IActionResult> Stats(CancellationToken ct = default) =>

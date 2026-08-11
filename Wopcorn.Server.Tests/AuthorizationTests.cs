@@ -18,6 +18,10 @@ public class AuthorizationTests(WopcornApiFactory factory) : IClassFixture<Wopco
         { "PUT", "/api/me", false },
         { "PUT", "/api/me/avatar", true },
         { "DELETE", "/api/me/avatar", false },
+        // Plan 10. A suggestion writes to somebody else's list, so an anonymous
+        // caller reaching it would be the worst possible version of this feature.
+        { "POST", "/api/suggestions", false },
+        { "PUT", "/api/me/preferences", false },
     };
 
     [Theory]

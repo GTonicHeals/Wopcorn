@@ -45,6 +45,7 @@ function card(overrides: Partial<TitleCard> = {}): TitleCard {
     lists: { watched: false, watchlist: false, queue: false },
     myRating: null,
     availableOn: [],
+    suggestion: null,
     ...overrides
   };
 }
@@ -61,6 +62,8 @@ function detail(overrides: Partial<TitleDetail> = {}): TitleDetail {
     cast: [],
     seasons: [],
     friendsWatched: [],
+    suggestedBy: [],
+    myComment: null,
     stale: false,
     ...overrides
   };

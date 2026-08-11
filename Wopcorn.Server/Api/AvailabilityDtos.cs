@@ -47,9 +47,19 @@ public record ServicesDto(string Region, IReadOnlyList<int> ProviderIds);
 /// <see cref="UserSummary"/> deliberately does not carry these: it also describes
 /// friends, and a friend's region and subscriptions are their business.
 /// </summary>
+/// <param name="AutoAddSuggestions">
+/// Whether a friend's suggestion goes straight onto the list it names (plan 10).
+/// It is here and not on <see cref="UserSummary"/> for the same reason
+/// <paramref name="Region"/> is: whether you auto-accept someone's suggestions is
+/// not something they get to see.
+/// </param>
 public record MeDto(
     string Id,
     string DisplayName,
     string? AvatarUrl,
     string? Region,
-    IReadOnlyList<int> ProviderIds);
+    IReadOnlyList<int> ProviderIds,
+    bool AutoAddSuggestions);
+
+/// <summary>Body and response of <c>PUT /api/me/preferences</c>.</summary>
+public record PreferencesDto(bool AutoAddSuggestions);

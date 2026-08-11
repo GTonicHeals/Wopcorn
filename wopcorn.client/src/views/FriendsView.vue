@@ -11,6 +11,7 @@ import IconSearch from '@/components/icons/IconSearch.vue';
 import PersonRow from '@/components/PersonRow.vue';
 import ScreenHeader from '@/components/ScreenHeader.vue';
 import SpinnerBlock from '@/components/SpinnerBlock.vue';
+import SuggestionInbox from '@/components/SuggestionInbox.vue';
 import TasteMatch from '@/components/TasteMatch.vue';
 import { useUserSearch } from '@/composables/useUserSearch';
 import { useFriendsStore } from '@/stores/friends';
@@ -273,7 +274,13 @@ async function confirmRemove(): Promise<void> {
         </ul>
       </section>
 
-      <!-- 2. Your friends. -->
+      <!--
+        2. Titles friends have put in front of you. After the friend requests,
+        which gate everything here, and before the roster, which needs nothing.
+      -->
+      <SuggestionInbox />
+
+      <!-- 3. Your friends. -->
       <section class="section" aria-labelledby="friends-list">
         <h2 id="friends-list" class="section__title">Your friends</h2>
 

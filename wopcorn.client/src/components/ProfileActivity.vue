@@ -11,9 +11,10 @@ import type { ActivityItem } from '@/api/types';
  * What this person has been up to lately — the profile's counterpart to the
  * feed, which deliberately leaves their own activity out.
  *
- * Deliberately **not** `FeedItem`. There, the news is who did it, so every row
- * leads with an avatar and a name and carries a full card. Here the person is
- * the page, so the row leads with the title and the name never appears at all.
+ * Deliberately **not** `FeedGroup`. There, the news is who did it, so every
+ * entry leads with an avatar and a name and carries full cards. Here the person
+ * is the page, so the row leads with the title and the name never appears at
+ * all — and nothing is grouped, because one line per event *is* the density.
  */
 defineProps<{
   items: ActivityItem[];

@@ -11,11 +11,12 @@ ratings, and mutual-friend social features, with everything pulled from TMDB. Se
 
 **All nine plans in `plans/` are implemented.** The Visual Studio template
 scaffolding is gone. Server and client are feature-complete against
-`REQUIREMENTS.md`, with 277 server tests and 256 client tests passing.
+`REQUIREMENTS.md`, with 319 server tests and 293 client tests passing.
 
-Passkey sign-in, password reset, and the profile screen with its favourites
-showcase were added after the original seven plans and are not described by any
-of them — `plans/API-CONTRACT.md` is their spec.
+Passkey sign-in, password reset, the profile screen with its favourites
+showcase, and watched notes with friend-to-friend suggestions were added after
+the original seven plans and are not described by any of them —
+`plans/API-CONTRACT.md` is their spec.
 
 | Area | Where |
 |---|---|
@@ -27,6 +28,7 @@ of them — `plans/API-CONTRACT.md` is their spec.
 | Streaming availability, region and services | `Catalog/Availability{Service,Warmer}.cs`, `Controllers/AvailabilityController.cs`, `wopcorn.client/src/components/{WhereToWatch,ProviderBadges}.vue` |
 | Lists, queue ordering, ratings | `Wopcorn.Server/Lists/`, `Controllers/{Lists,Queue,Ratings}Controller.cs` |
 | Friends, feed, taste match | `Wopcorn.Server/Social/`, `Controllers/{Friends,Feed}Controller.cs` |
+| Watched notes, friend suggestions | `Social/SuggestionService.cs`, `Controllers/SuggestionsController.cs`, `wopcorn.client/src/components/{SuggestionBanner,SuggestionInbox,SuggestBox,SuggestedBy,WatchedNote}.vue` |
 | Profile payload, favourites showcase | `Wopcorn.Server/Social/ProfileService.cs`, `Lists/FavoritesService.cs`, `Controllers/ProfileController.cs`, `wopcorn.client/src/views/ProfileView.vue` |
 | Design tokens and shell | `wopcorn.client/src/assets/tokens.css`, `src/components/AppShell.vue` |
 | API client and wire types | `wopcorn.client/src/api/` |
@@ -263,6 +265,32 @@ names match (Drama 18), so `GenreCatalogService.EnsureAsync` merges against
 `db.Genres.Local` as well as the database — otherwise the TV pass adds a second
 entity with a key the movie pass already tracked, and EF refuses it.
 
+### The home screen: browse first, activity grouped
+
+`/` is the feed route, but **Browse comes above the activity**. The feed is
+friends-only and never contains your own activity, so an empty feed is the
+*normal* first-run state; rails at the top mean the home screen opens on
+something to watch rather than on an apology.
+
+The activity below it is grouped, by `lib/feedGroups.ts`, into one entry per
+burst: consecutive events from the same friend with the same verb become one
+attribution line above one `TitleGrid`. Purely a display decision — no event is
+dropped, reordered, or merged with a non-adjacent one, and `useFeed`'s `items`
+is untouched, so paging still appends to a flat list. Three rules bound it, all
+covered by `feedGroups.spec.ts`:
+
+- **A rating never joins a group.** The stars sit on the group's one line, and a
+  row of posters under one "rated ★★★★☆" could not say whose stars those were.
+- **24 hours is the reach**, measured between adjacent events. The group shows
+  one timestamp, the newest, so swallowing a three-week-old event would make it
+  a lie.
+- **A title appears once per group**, because the grid keys by title key.
+
+`FeedGroup.vue` renders the group through the ordinary `TitleGrid`, not a card
+layout of its own: the gutters then line up with the lists and search, and
+`auto-fill` keeps a one-card group one column wide instead of stretching a
+poster across the content width.
+
 ### One profile, two viewers
 
 `GET /api/me/profile` and `GET /api/friends/{userId}/profile` return the **same**
@@ -283,6 +311,106 @@ is how the order is made visible without numerals — those belong to the queue.
 known) and `unknownTitles` (what is not), because a series with an empty
 `episode_run_time` contributes nothing. That split is what lets the profile say
 "at least 33h 48m" rather than passing an understatement off as a total.
+
+### Notes and suggestions: a friend may add, never remove
+
+A watched entry carries a **note** — one per (user, title), at most 2000
+characters, visible to friends. It lives on `ListEntry.Comment` beside `Rating`
+for the reason ratings do: there is exactly one, and unwatching has to discard
+it. A nullable column says that; a table would need a cascade to say it. The
+routes mirror ratings exactly (`PUT`/`DELETE /api/titles/{key}/comment`), writing
+one implicitly marks the title watched (FR-E3), and clearing one keeps the
+watched entry. A blank body is `400`, not a silent clear — `DELETE` is how a note
+is taken back, and losing one to a stray keystroke is not a thing to design in.
+**Notes write no activity.** A rating is a judgement the feed and the taste match
+both read; a note is prose addressed to whoever opens the title.
+
+A **suggestion** is one friend recommending one title to another, for the
+watchlist or the queue. `SuggestionService` owns the whole state machine, and one
+rule governs it:
+
+> A suggestion may write to the recipient's lists, but only ever to **add**, and
+> only ever a row it created itself.
+
+Everything else follows. `SuggestionState` has three values, and `Added` exists
+**purely to record which rows the suggestion owns** — it is otherwise identical
+to `Pending`:
+
+- `Pending` — nothing written anywhere; it waits in the inbox.
+- `Added` — the recipient's `autoAddSuggestions` was on, so the title went
+  straight onto the list and the suggestion may take it back off.
+- `Accepted` — the row is the recipient's now. No badge, nothing to answer.
+
+Four consequences that are easy to get wrong:
+
+- **Auto-add creates; it never adopts.** If the title is already on the target
+  list, the suggestion arrives `Pending` whatever the setting says.
+  `ListService.AddAtAsync` returns `false` in that case and the caller must
+  honour it — a badge whose "Remove" deletes an entry the recipient added
+  themselves is the one genuinely destructive bug this feature can have.
+- **Dismiss is the only path that removes anything**, and only from `Added`.
+  Withdrawal — the sender's verb — takes back the message and never the title:
+  by then it is a row in someone else's queue, possibly already moved.
+- **`TitleCard.suggestion` means "unanswered", not "was suggested".** It is
+  loaded in `TitleMapper.LoadUserContextAsync` beside `availableOn`, so every
+  grid, list and search path gets it in one query, and it goes null the moment
+  the suggestion is answered — which is exactly what makes the
+  "recommended by X — accept / remove" line disappear on accept while the title
+  stays put. The lasting record is `TitleDetail.suggestedBy`, which keeps
+  accepted ones. Two friends suggesting the same title give the card the
+  **newest**; `suggestedBy` has both.
+- **A queue position is honoured once and never re-asserted.** It is clamped to
+  the queue's length on insert and the entry is ordinary from then on. Nothing in
+  the interface ever shows the integer: `lib/suggestions.ts` translates between it
+  and three coarse intentions ("next up", "fairly soon", "no rush") in both
+  directions, because a number read against a queue the sender cannot see is a
+  promise the data will not keep.
+
+`SuggestionService.DismissAsync` calls `ListService.RemoveWithinTransactionAsync`
+rather than `RemoveAsync`. SQLite rejects a nested transaction outright, so this
+is not an optimisation — dropping the entry and deleting the suggestion that
+created it have to be one write.
+
+`autoAddSuggestions` is **off by default and belongs to the recipient**. The
+sender cannot see or influence it, which is why it sits on `Me` rather than
+`UserSummary`. On by default would mean signing up hands every future friend
+write access to your queue.
+
+### Where the badge and the note render
+
+`SuggestionBanner` is on **four** surfaces — `TitleCard` (grids), `ListTable`
+rows, `QueueBoard` (the hero in full form, the rows compact) and `TitleView` —
+and in every one it sits **outside** the `RouterLink`, because its buttons must
+not navigate. That placement is also what keeps them working under the lists'
+quick view: `isQuickViewClick` claims a click only when the target is inside an
+`<a>`, so the capture handler on the row passes the banner over.
+
+In the two list layouts the banner takes a **full-width line of its own** rather
+than a cell — the row's other cells are a fixed rhythm and squeezing it in would
+cost the title its width. In the queue it is indented past the numeral, because
+the numerals are the queue's one piece of numbering and a strip cutting across
+them would read as a row.
+
+**Both answers are worded from the state, and the two components word them
+differently.** `SuggestionBanner` says "Accept" either way and varies only the
+other side (`Added` → Remove, `Pending` → Dismiss). `SuggestionInbox` varies
+both: `Added` reads **Keep / Remove**, because the row is already on the list and
+offering to add it again names something that has happened, and `Pending` reads
+**Add to {list} / Dismiss**. An unconditional "Add to…" on the accept side is the
+easy mistake here — it was shipped once and read as a no-op on every auto-added
+row.
+
+`SuggestedBy` renders the prose: on the title screen, and `compact` in
+`TitleQuickView`. The quick view already fetches `GET /api/titles/{key}` for its
+synopsis, so the note rides along at no extra request — and because
+`suggestedBy` keeps accepted suggestions, answering the badge never takes the
+message with it. **The comment is clamped nowhere.** The synopsis beside it is
+(a glance is the point), but a half-shown message is the problem rather than the
+fix, and the 500-character server cap already bounds it.
+
+`SuggestionsTests.cs` and `CommentsTests.cs` cover the server side;
+`stores/__tests__/{suggestions,comments}.spec.ts` and
+`lib/__tests__/suggestions.spec.ts` cover the client's.
 
 ### The dev-time proxy handshake
 
@@ -435,6 +563,19 @@ throws — a mail failure must not become a 500 that confirms an account exists.
   boxed with a neutral border, and never adjacent to the accent — a Netflix red
   beside the gold is two competing signals. An empty `availableOn` renders
   **nothing**: it cannot distinguish "unknown" from "on none of yours".
+- **A suggestion banner is deliberately not accent.** It is someone else asking,
+  which is the opposite of the user's own state, so it takes `--surface-raised`
+  and a border. Its two buttons are the one place in the app below the 44px
+  floor: FR-H4 governs the controls a card is *for*, and a transient strip that
+  vanishes on first use must not out-height the poster it is about.
+  "Suggest to a friend" is the same rule from the other end — it is the one
+  control on the title screen that writes to **someone else's** list, so it is a
+  bordered `secondary`, never `primary`. It was a borderless `ghost` once and
+  read as a caption under the list toggles; a border is the fix, gold is not.
+- **The auto-add switch in settings *is* accent when on**, unlike everything
+  above: which suggestions land on your own lists is your own state, the same as
+  a list toggle or the theme segment. Its knob position carries the state too,
+  so it never rests on colour alone (NFR-9).
 - **The type chip labels series and seasons, never films.** The default needs no
   label, and a chip on every card is noise that hides the two that matter. It is
   neutral, not accent — what kind of thing something is is not user state.

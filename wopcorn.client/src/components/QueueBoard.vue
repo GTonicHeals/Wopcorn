@@ -13,6 +13,7 @@ import IconLayers from '@/components/icons/IconLayers.vue';
 import IconSort from '@/components/icons/IconSort.vue';
 import PosterImage from '@/components/PosterImage.vue';
 import ProviderBadges from '@/components/ProviderBadges.vue';
+import SuggestionBanner from '@/components/SuggestionBanner.vue';
 import TypeChip from '@/components/TypeChip.vue';
 import { formatShortDate, metaLine } from '@/lib/format';
 import { decadeGradient } from '@/lib/posters';
@@ -299,26 +300,42 @@ async function applyPreset(): Promise<void> {
 
     <template v-else>
       <!-- № 1 is tonight's answer, not a row. -->
-      <RouterLink v-if="heroTitle" class="hero" :to="titlePath(heroTitle.key)">
-        <span
-          class="hero__art"
-          :style="
-            heroBackdrop
-              ? { backgroundImage: `url(${heroBackdrop})` }
-              : { backgroundImage: heroFallback }
-          "
-          aria-hidden="true"
-        />
-        <span class="hero__scrim" aria-hidden="true" />
-        <span class="hero__band">
-          <span class="hero__eyebrow">Up next</span>
-          <span class="hero__title">{{ heroTitle.title }}</span>
-          <span v-if="heroMeta" class="hero__meta">
-            <TypeChip :media-type="heroTitle.mediaType" />
-            {{ heroMeta }}
+      <div v-if="heroTitle" class="hero-block">
+        <RouterLink class="hero" :to="titlePath(heroTitle.key)">
+          <span
+            class="hero__art"
+            :style="
+              heroBackdrop
+                ? { backgroundImage: `url(${heroBackdrop})` }
+                : { backgroundImage: heroFallback }
+            "
+            aria-hidden="true"
+          />
+          <span class="hero__scrim" aria-hidden="true" />
+          <span class="hero__band">
+            <span class="hero__eyebrow">Up next</span>
+            <span class="hero__title">{{ heroTitle.title }}</span>
+            <span v-if="heroMeta" class="hero__meta">
+              <TypeChip :media-type="heroTitle.mediaType" />
+              {{ heroMeta }}
+            </span>
           </span>
-        </span>
-      </RouterLink>
+        </RouterLink>
+
+        <!--
+          Full form rather than compact: the hero is the one place with room for
+          the whole sentence, and a queue suggestion sent "next up" lands here
+          more often than anywhere else — the largest thing on the screen must
+          not be the one that fails to say whose idea it was. Outside the link,
+          like everywhere else, so its buttons cannot navigate.
+        -->
+        <SuggestionBanner
+          v-if="heroTitle.suggestion"
+          class="hero-block__suggestion"
+          :badge="heroTitle.suggestion"
+          :title-key="heroTitle.key"
+        />
+      </div>
 
       <!--
         Reordering is suspended while the filter is on: PUT /api/queue/order takes
@@ -406,6 +423,21 @@ async function applyPreset(): Promise<void> {
               <span v-if="!filtering" class="queue-row__grip drag-handle" aria-hidden="true">
                 <IconGrip />
               </span>
+
+              <!--
+                A second line of its own, spanning the row: the cells above it
+                are a fixed rhythm — numeral, poster, moves, grip — and squeezing
+                a two-button strip into the text cell would cost the title the
+                width it needs. Compact here, where the numeral already anchors
+                the row; the hero above carries the full sentence.
+              -->
+              <SuggestionBanner
+                v-if="titleOf(element)!.suggestion"
+                class="queue-row__suggestion"
+                :badge="titleOf(element)!.suggestion!"
+                :title-key="element"
+                compact
+              />
             </template>
           </li>
         </template>
@@ -500,6 +532,18 @@ async function applyPreset(): Promise<void> {
 
 /* ------------------------------------------------------------------ hero */
 
+/*
+ * The gap below № 1 belongs to the block, not the artwork: a suggestion banner
+ * has to sit tight under the hero it is about, not float halfway to row 2.
+ */
+.hero-block {
+  margin-bottom: var(--space-4);
+}
+
+.hero-block__suggestion {
+  margin-top: var(--space-2);
+}
+
 .hero {
   position: relative;
   display: block;
@@ -509,7 +553,6 @@ async function applyPreset(): Promise<void> {
   overflow: hidden;
   text-decoration: none;
   color: inherit;
-  margin-bottom: var(--space-4);
 }
 
 .hero__art {
@@ -577,10 +620,23 @@ async function applyPreset(): Promise<void> {
 .queue-row {
   display: flex;
   align-items: center;
+  /* Wraps so a suggestion banner can take a full-width line of its own. */
+  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
+}
+
+/*
+ * Indented past the numeral so the column of figures stays unbroken — the
+ * numerals are the queue's one piece of numbering and a strip cutting across
+ * them would read as a row of its own.
+ */
+.queue-row__suggestion {
+  flex-basis: 100%;
+  /* The row's own gap supplies the space above; this is the numeral's column. */
+  margin-left: calc(26px + var(--space-3));
 }
 
 .queue-row:last-child {
