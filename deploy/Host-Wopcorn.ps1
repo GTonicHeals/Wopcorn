@@ -511,19 +511,27 @@ function Install-StartupTask {
     # Two triggers: one at boot, and one that re-runs every ten minutes. `start`
     # is a no-op when the app is already up, so the repeat is a cheap supervisor
     # that brings it back after a crash.
-    $triggers = @(New-ScheduledTaskTrigger -AtStartup)
+    #
+    # The repeat carries no -RepetitionDuration on purpose: an omitted duration is
+    # how Task Scheduler spells "indefinitely". [TimeSpan]::MaxValue serialises to
+    # P99999999DT23H59M59S, which it rejects outright -- and it rejects it when the
+    # task is registered, not when the trigger is built, so the bad trigger takes
+    # the whole task down with it.
+    $boot   = New-ScheduledTaskTrigger -AtStartup
+    $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
+        -RepetitionInterval (New-TimeSpan -Minutes 10)
+
     try {
-        $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
-            -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration ([TimeSpan]::MaxValue)
-        $triggers += $repeat
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($boot, $repeat) `
+            -Principal $principal -Settings $settings -Force | Out-Null
+        Write-Ok "Scheduled task '$TaskName' registered: starts at boot, checks every 10 minutes."
     } catch {
-        Write-Note 'Could not add the ten-minute health trigger; the app will still start at boot.'
+        Write-Note "The ten-minute health trigger was refused: $($_.Exception.Message)"
+        Write-Note 'Falling back to the boot trigger alone.'
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $boot `
+            -Principal $principal -Settings $settings -Force | Out-Null
+        Write-Ok "Scheduled task '$TaskName' registered: starts at boot."
     }
-
-    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
-        -Principal $principal -Settings $settings -Force | Out-Null
-
-    Write-Ok "Scheduled task '$TaskName' registered: starts at boot, checks every 10 minutes."
 }
 
 function Uninstall-StartupTask {
