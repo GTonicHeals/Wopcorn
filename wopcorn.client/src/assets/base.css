@@ -41,6 +41,13 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   min-height: 100dvh;
+
+  /*
+   * Drops the double-tap-to-zoom gesture, which also drops the ~300ms click
+   * delay browsers hold open waiting for the second tap. Panning and scrolling
+   * are untouched.
+   */
+  touch-action: manipulation;
 }
 
 img {
@@ -58,6 +65,24 @@ select,
 textarea {
   font: inherit;
   color: inherit;
+}
+
+/*
+ * 16px is the floor on every control you can type into — the one place the type
+ * scale does not reach, and the reason it is repeated in each component that
+ * sets a size of its own rather than left to inherit.
+ *
+ * iOS Safari zooms the page in when a control with smaller text takes focus, and
+ * it does not zoom back out when the field is blurred. The layout viewport stays
+ * device-width while the visual viewport shows less of it, so a fixed bottom bar
+ * is drawn wider than the screen and hangs off the visible area. The symptom
+ * surfaces one screen later: you sign in at 15px, land on the feed, and the nav
+ * is cut off. `maximum-scale=1` in index.html is the other half.
+ */
+input,
+select,
+textarea {
+  font-size: 16px;
 }
 
 button {

@@ -137,8 +137,10 @@ useSearchHotkey(() => {
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  height: calc(var(--nav-height) + env(safe-area-inset-bottom));
-  padding-bottom: env(safe-area-inset-bottom);
+  /* The 0px fallbacks matter: an unsupported env() with no fallback poisons the
+     whole calc(), and the bar loses its height rather than its inset. */
+  height: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
@@ -210,7 +212,7 @@ useSearchHotkey(() => {
 
 .shell__main {
   /* The bar never covers content. */
-  padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom) + var(--space-4));
+  padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px) + var(--space-4));
 }
 
 .shell__inner {

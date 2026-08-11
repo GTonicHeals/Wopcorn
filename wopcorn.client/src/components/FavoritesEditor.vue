@@ -374,7 +374,8 @@ function close(): void {
   background: var(--surface-raised);
   color: var(--text);
   font: inherit;
-  font-size: var(--text-sm);
+  /* 16px, not the body size — see base.css: below it iOS zooms in on focus. */
+  font-size: 16px;
 }
 
 .picker {

@@ -2,8 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <!-- viewport-fit=cover is what makes env(safe-area-inset-bottom) resolve. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <!--
+      viewport-fit=cover is what makes env(safe-area-inset-bottom) resolve.
+
+      maximum-scale/user-scalable pin the page at 1×. The app is a fixed bottom
+      bar over a scrolling column: once the visual viewport is zoomed past the
+      layout viewport, the bar is laid out at a width the screen no longer shows
+      and reads as broken. See the 16px control rule in base.css — Safari has
+      ignored user-scalable since iOS 10, so that rule is the half that holds.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    >
 
     <title>Wopcorn</title>
     <meta name="description" content="Track what you have watched, and what is next.">

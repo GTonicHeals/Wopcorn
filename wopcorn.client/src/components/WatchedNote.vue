@@ -176,7 +176,8 @@ async function remove(): Promise<void> {
   border-radius: var(--radius-md);
   color: var(--text);
   font-family: inherit;
-  font-size: var(--text-base);
+  /* 16px, not the body size — see base.css: below it iOS zooms in on focus. */
+  font-size: 16px;
   line-height: 1.6;
   resize: vertical;
 }

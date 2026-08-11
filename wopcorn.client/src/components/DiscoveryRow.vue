@@ -84,6 +84,15 @@ onMounted(load);
   /* The rail bleeds to the screen edge; the first and last cards keep the page
      gutter so nothing looks clipped. */
   padding: 0 var(--space-4);
+
+  /*
+   * Must match the padding above, or `mandatory` eats it. The snapport defaults
+   * to the scrollport, so `scroll-snap-align: start` wants the first card's edge
+   * flush with the container's *content* edge — and since the padding already
+   * holds it 16px in, the browser force-scrolls by exactly that much to satisfy
+   * the snap. The gutter survives on screen but the first card starts clipped.
+   */
+  scroll-padding-inline: var(--space-4);
 }
 
 .rail__track::-webkit-scrollbar {
@@ -101,6 +110,10 @@ onMounted(load);
   .rail__track {
     padding-left: var(--space-6);
     padding-right: var(--space-6);
+  }
+
+  .rail__track {
+    scroll-padding-inline: var(--space-6);
   }
 }
 </style>

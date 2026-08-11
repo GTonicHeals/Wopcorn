@@ -395,11 +395,24 @@ function Invoke-Migrate {
 
 # ---------------------------------------------------------- tailscale -------
 
+# Tailscale puts itself on the *user* PATH, not the machine one, so an elevated
+# shell -- and the SYSTEM account the startup task runs as -- often cannot see it
+# even though it is plainly installed. Hence the explicit candidate list: PATH is
+# the fast path, not the only one.
 function Get-TailscaleExe {
     $cmd = Get-Command tailscale -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    $fallback = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
-    if (Test-Path -LiteralPath $fallback) { return $fallback }
+
+    $candidates = @(
+        (Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Tailscale\tailscale.exe'),
+        (Join-Path $env:ProgramFiles 'Tailscale IPN\tailscale.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Tailscale\tailscale.exe'),
+        (Join-Path $env:ProgramData 'chocolatey\bin\tailscale.exe')
+    )
+    foreach ($path in $candidates) {
+        if ($path -and (Test-Path -LiteralPath $path)) { return $path }
+    }
     return $null
 }
 
@@ -463,8 +476,17 @@ function Set-TailscaleServe {
     $suffix = ''
     if ($ServePort -ne 443) { $suffix = ":$ServePort" }
 
+    # The serve mapping outlives the app: it is tailscaled's config, not a live
+    # connection. Reporting it green while nothing listens on $Port is how a dead
+    # app reads as a working deploy -- the tailnet name then answers 502 and the
+    # script has already said "Live at". Probe before claiming it.
     if ($existing -eq $wanted) {
-        Write-Ok "Already served at https://$($node.DnsName)$suffix"
+        if (Test-AppHealthy) {
+            Write-Ok "Already served at https://$($node.DnsName)$suffix"
+        } else {
+            Write-Note "$hostPort is mapped to $wanted, but nothing is answering there."
+            Write-Note 'The mapping is fine; the app is down. Run: .\Host-Wopcorn.ps1 start'
+        }
         return
     }
 

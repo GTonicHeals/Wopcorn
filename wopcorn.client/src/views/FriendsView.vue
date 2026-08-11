@@ -387,7 +387,8 @@ async function confirmRemove(): Promise<void> {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
-  font-size: var(--text-base);
+  /* 16px, not the body size — see base.css: below it iOS zooms in on focus. */
+  font-size: 16px;
 }
 
 .section {

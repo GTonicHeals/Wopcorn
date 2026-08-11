@@ -10,6 +10,7 @@ import IconClose from '@/components/icons/IconClose.vue';
 import IconGrid from '@/components/icons/IconGrid.vue';
 import IconLayers from '@/components/icons/IconLayers.vue';
 import IconRows from '@/components/icons/IconRows.vue';
+import IconSearch from '@/components/icons/IconSearch.vue';
 import IconSort from '@/components/icons/IconSort.vue';
 import ListTable from '@/components/ListTable.vue';
 import QueueBoard from '@/components/QueueBoard.vue';
@@ -19,6 +20,7 @@ import TitleGrid from '@/components/TitleGrid.vue';
 import TitleQuickView from '@/components/TitleQuickView.vue';
 import { listTotals, titleCount } from '@/lib/format';
 import { matchesServices, viewerServices } from '@/lib/services';
+import { matchesQuery } from '@/lib/titleFilter';
 import { readViewMode, writeViewMode, type ViewMode } from '@/lib/viewMode';
 import { useAuthStore } from '@/stores/auth';
 import { useConfigStore } from '@/stores/config';
@@ -66,6 +68,21 @@ const selectedServices = ref<number[]>([]);
 const filtersOpen = ref(false);
 const sortOpen = ref(false);
 
+/**
+ * The type-to-filter field, matched by `lib/titleFilter`.
+ *
+ * It is deliberately *not* a fifth entry in the filter sheet and gets no chip in
+ * the row below the tools: the field is on screen with its own text in it and
+ * its own clear button, so a chip would be a second place saying the same thing
+ * and a second place to clear it from. It does count as narrowing everywhere
+ * that matters — the header's "showing 12 of 84" and the empty state.
+ *
+ * The queue has none of this. It has one true order and `PUT /api/queue/order`
+ * needs the complete list, which is the same reason it hides sort and filters.
+ */
+const query = ref('');
+const trimmedQuery = computed(() => query.value.trim());
+
 /** Plural labels, because these narrow a list rather than name one thing. */
 const TYPE_FILTERS: { value: MediaType; label: string }[] = [
   { value: 'movie', label: 'Films' },
@@ -80,6 +97,7 @@ watch(
     selectedDecades.value = [];
     selectedTypes.value = [];
     selectedServices.value = [];
+    query.value = '';
     void lists.ensure(list);
     if (list !== 'queue') void titles.loadGenres();
   },
@@ -134,6 +152,7 @@ const serviceOptions = computed(() =>
   viewerServices(config.providersByRegion.get(auth.region ?? '') ?? [], auth.providerIds)
 );
 
+/** The sheet's four, which is what its Clear button and its count answer for. */
 const hasFilters = computed(
   () =>
     selectedGenres.value.length > 0 ||
@@ -141,6 +160,9 @@ const hasFilters = computed(
     selectedTypes.value.length > 0 ||
     selectedServices.value.length > 0
 );
+
+/** Those four *or* the field: anything at all standing between you and the list. */
+const isNarrowed = computed(() => hasFilters.value || trimmedQuery.value !== '');
 
 /** True once every configured service is selected — what the one-tap chip sets. */
 const onMyServices = computed(
@@ -157,6 +179,11 @@ function toggleOnMyServices(): void {
 
 const visible = computed(() =>
   entryTitles.value.filter((title) => {
+    // First, because while you are typing it is the one doing nearly all the work.
+    if (!matchesQuery(title.title, trimmedQuery.value)) {
+      return false;
+    }
+
     if (selectedTypes.value.length > 0 && !selectedTypes.value.includes(title.mediaType)) {
       return false;
     }
@@ -208,11 +235,21 @@ function toggleService(id: number): void {
     : [...selectedServices.value, id];
 }
 
+/**
+ * The sheet's button, and so the sheet's four only — it sits beside them, and
+ * emptying a field it does not show would be a change with no visible cause.
+ */
 function clearFilters(): void {
   selectedGenres.value = [];
   selectedDecades.value = [];
   selectedTypes.value = [];
   selectedServices.value = [];
+}
+
+/** The empty state's button, which has to actually bring the list back. */
+function clearAll(): void {
+  clearFilters();
+  query.value = '';
 }
 
 const activeChips = computed(() => [
@@ -239,6 +276,30 @@ const activeChips = computed(() => [
 ]);
 
 const filterSummary = computed(() => activeChips.value.map((chip) => chip.label).join(', '));
+
+/**
+ * Two different dead ends, worded apart. A sheet full of checkboxes that between
+ * them exclude everything is a different mistake from four letters that match
+ * nothing, and the second one wants to say what it searched — people arrive at
+ * this field expecting the Search screen's reach.
+ */
+const emptyHeadline = computed(() =>
+  hasFilters.value
+    ? 'Nothing matches those filters'
+    : `Nothing here matches “${trimmedQuery.value}”`
+);
+
+const emptyBody = computed(() => {
+  if (!hasFilters.value) {
+    return `Try fewer letters. This filters the titles already on your ${title.value.toLowerCase()} list — it does not search TMDB.`;
+  }
+
+  return trimmedQuery.value === ''
+    ? `No title in this list matches ${filterSummary.value}.`
+    : `No title in this list matches “${trimmedQuery.value}” and ${filterSummary.value}.`;
+});
+
+const clearLabel = computed(() => (hasFilters.value ? 'Clear filters' : 'Clear the filter'));
 
 // --------------------------------------------------------------------- sort
 
@@ -346,7 +407,7 @@ watch(
 const headerCount = computed(() => {
   if (state.value.status !== 'ready') return undefined;
   if (props.list === 'queue') return titleCount(state.value.count);
-  return hasFilters.value
+  return isNarrowed.value
     ? `showing ${visible.value.length} of ${state.value.count}`
     : listTotals(entryTitles.value.map((title) => title.runtimeMinutes));
 });
@@ -383,6 +444,40 @@ const headerCount = computed(() => {
     <QueueBoard v-else-if="props.list === 'queue'" quick-view @select="openQuickView" />
 
     <template v-else>
+      <!--
+        Above the tools row, not in it: it needs the full width, and something you
+        type outranks two buttons that open a sheet. Not sticky — nothing else on
+        this screen is, and a bar that detached from the tabs above it would look
+        like it belonged to the rows rather than to the list.
+
+        `type="search"` for the keyboard it summons, with the WebKit clear button
+        suppressed in favour of the one below, which is 44px and on every browser.
+      -->
+      <div v-if="state.entries.length > 0" class="filterbar">
+        <label class="sr-only" for="list-filter">Filter your {{ title.toLowerCase() }} list</label>
+        <span class="filterbar__icon" aria-hidden="true"><IconSearch /></span>
+        <input
+          id="list-filter"
+          v-model="query"
+          class="filterbar__input"
+          type="search"
+          enterkeyhint="done"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="Filter by title"
+        />
+        <button
+          v-if="query !== ''"
+          type="button"
+          class="filterbar__clear"
+          @click="query = ''"
+        >
+          <IconClose />
+          <span class="sr-only">Clear the title filter</span>
+        </button>
+      </div>
+
       <div class="tools">
         <button type="button" class="tools__btn" @click="openSort">
           <IconSort />
@@ -455,14 +550,10 @@ const headerCount = computed(() => {
         <template #icon><IconLayers /></template>
       </EmptyState>
 
-      <EmptyState
-        v-else-if="visible.length === 0"
-        headline="Nothing matches those filters"
-        :body="`No title in this list matches ${filterSummary}.`"
-      >
+      <EmptyState v-else-if="visible.length === 0" :headline="emptyHeadline" :body="emptyBody">
         <template #icon><IconLayers /></template>
         <template #action>
-          <BaseButton variant="secondary" @click="clearFilters">Clear filters</BaseButton>
+          <BaseButton variant="secondary" @click="clearAll">{{ clearLabel }}</BaseButton>
         </template>
       </EmptyState>
 
@@ -609,6 +700,67 @@ const headerCount = computed(() => {
 .segmented__item--on {
   background: var(--accent);
   color: var(--accent-ink);
+}
+
+.filterbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) var(--space-4) 0;
+  padding-left: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.filterbar__icon {
+  flex: none;
+  color: var(--text-muted);
+  line-height: 0;
+}
+
+.filterbar__icon :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.filterbar__input {
+  flex: 1;
+  min-width: 0;
+  /* FR-H4: at least 44px, and 16px text so iOS does not zoom on focus. */
+  min-height: var(--tap-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.filterbar__input::placeholder {
+  color: var(--text-muted);
+}
+
+/* WebKit's own is 12px and unstyleable; the button beside it is the tap target. */
+.filterbar__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.filterbar__clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* Clearing is undoing your own typing, not a piece of state — no accent. */
+  width: var(--tap-min);
+  min-height: var(--tap-min);
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+}
+
+.filterbar__clear :deep(svg) {
+  width: 16px;
+  height: 16px;
 }
 
 .tools {
@@ -777,6 +929,13 @@ const headerCount = computed(() => {
   .chips {
     padding-left: var(--space-6);
     padding-right: var(--space-6);
+  }
+
+  /* Long enough to hold a title, short enough not to read as the page's search. */
+  .filterbar {
+    max-width: 420px;
+    margin-left: var(--space-6);
+    margin-right: var(--space-6);
   }
 }
 </style>
